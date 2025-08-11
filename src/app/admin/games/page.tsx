@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabaseClient';
-import { Game } from '@/types/api';
+// Removed unused Game import
 
 interface LocalGame {
   id: string;
@@ -167,7 +167,7 @@ export default function GamesAdminPage() {
     if (!acc[weekKey]) acc[weekKey] = [];
     acc[weekKey].push(game);
     return acc;
-  }, {} as Record<string, Game[]>);
+  }, {} as Record<string, LocalGame[]>);
 
   return (
     <main className="p-6 space-y-6">
