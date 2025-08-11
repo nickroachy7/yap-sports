@@ -44,10 +44,6 @@ export default function GamesAdminPage() {
 
   const supabase = createSupabaseBrowserClient();
 
-  useEffect(() => {
-    loadGames();
-  }, [statusFilter, weekFilter, loadGames]);
-
   const loadGames = useCallback(async () => {
     try {
       let query = supabase
@@ -98,6 +94,10 @@ export default function GamesAdminPage() {
       setLoading(false);
     }
   }, [statusFilter, weekFilter]);
+
+  useEffect(() => {
+    loadGames();
+  }, [statusFilter, weekFilter, loadGames]);
 
   const syncGames = useCallback(async (testMode = true) => {
     setLoading(true);
