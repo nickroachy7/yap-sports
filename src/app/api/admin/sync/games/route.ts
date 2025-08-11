@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
 
       allGames.push(...response.data);
       totalFetched += response.data.length;
-      cursor = response.meta?.next_cursor;
+      cursor = response.meta?.next_cursor ? String(response.meta.next_cursor) : null;
 
       console.log(`Fetched ${response.data.length} games (total: ${totalFetched})`);
 
