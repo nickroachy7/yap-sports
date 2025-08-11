@@ -10,13 +10,13 @@
     }
   ],
   "functions": {
-    "app/api/admin/sync/stats/route.ts": {
+    "src/app/api/admin/sync/stats/route.ts": {
       "maxDuration": 300
     },
-    "app/api/admin/score-week/route.ts": {
+    "src/app/api/admin/score-week/route.ts": {
       "maxDuration": 300
     },
-    "app/api/cron/sync-daily/route.ts": {
+    "src/app/api/cron/sync-daily/route.ts": {
       "maxDuration": 300
     }
   }
