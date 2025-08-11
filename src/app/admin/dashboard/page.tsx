@@ -26,10 +26,6 @@ export default function AdminDashboard() {
 
   const supabase = createSupabaseBrowserClient();
 
-  useEffect(() => {
-    loadDashboardStats();
-  }, [loadDashboardStats]);
-
   const loadDashboardStats = useCallback(async () => {
     try {
       // Fetch all stats in parallel
@@ -78,6 +74,10 @@ export default function AdminDashboard() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    loadDashboardStats();
+  }, [loadDashboardStats]);
 
   const runFullSync = useCallback(async () => {
     setLoading(true);
