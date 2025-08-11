@@ -198,12 +198,16 @@ export async function POST(req: NextRequest) {
     // Step 3: Check database functions exist
     console.log('Step 3: Checking database functions...');
     try {
+      // Check if functions exist in pg_proc system catalog
       const { data: functions, error: functionsError } = await supabaseAdmin
-        .rpc('pg_get_functiondef', { funcid: 'purchase_pack_for_team'::regproc });
+        .from('pg_proc')
+        .select('proname')
+        .eq('proname', 'purchase_pack_for_team')
+        .limit(1);
       
       results.flow_steps.database_functions = {
         status: 'success',
-        purchase_pack_for_team: 'exists'
+        purchase_pack_for_team: functions && functions.length > 0 ? 'exists' : 'not_found'
       };
     } catch (error) {
       // Check if functions exist using a different method
