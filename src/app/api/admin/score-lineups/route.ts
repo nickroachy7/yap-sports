@@ -86,16 +86,16 @@ export async function POST(req: NextRequest) {
           });
 
           // Consume token uses for tokens that were applied
-          await supabaseAdmin
-            .from('user_tokens')
-            .update({ uses_remaining: supabaseAdmin.raw('uses_remaining - 1') })
-            .in('id', 
-              result.slot_results
-                ?.flatMap((slot: any) => 
-                  slot.token_evaluations?.map((evaluation: any) => evaluation.user_token_id) || []
-                )
-                ?.filter((id: any) => id) || []
-            );
+          const tokenIds = result.slot_results
+            ?.flatMap((slot: any) => 
+              slot.token_evaluations?.map((evaluation: any) => evaluation.user_token_id) || []
+            )
+            ?.filter((id: any) => id) || [];
+          
+          if (tokenIds.length > 0) {
+            // Use RPC to decrement uses_remaining atomically
+            await supabaseAdmin.rpc('decrement_token_uses', { token_ids: tokenIds });
+          }
         }
       } catch (err: any) {
         console.error(`Unexpected error scoring lineup ${lineup.id}:`, err);
