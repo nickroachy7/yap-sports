@@ -1,26 +1,269 @@
 @import "tailwindcss";
 
+/* YAP Sports Design System - Bleacher Report Inspired */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Core Brand Colors - Bleacher Report Style */
+  --color-obsidian: #0A0A0F;          /* Deep black background */
+  --color-midnight: #141414;          /* Primary dark background */
+  --color-slate: #1E1E1E;             /* Secondary dark background */
+  --color-gunmetal: #2A2A2A;          /* Elevated surfaces */
+  --color-steel: #3A3A3A;             /* Borders and dividers */
+  
+  /* Accent Colors - Dark Minimal */
+  --color-charcoal: #2D2D2D;          /* Primary dark charcoal */
+  --color-lime: #39FF14;              /* Success, gains */
+  --color-amber: #FFB700;             /* Warnings, caution */
+  --color-crimson: #FF073A;           /* Errors, losses */
+  --color-violet: #8A2BE2;            /* Special events */
+  
+  /* Text Colors */
+  --color-text-primary: #FFFFFF;      /* Primary text */
+  --color-text-secondary: #B0B0B8;    /* Secondary text */
+  --color-text-tertiary: #808088;     /* Tertiary text */
+  --color-text-accent: #FFFFFF;       /* Accent text - white */
+  
+  /* Rarity Colors - Sports Inspired */
+  --color-common: #9E9E9E;            /* Clean gray */
+  --color-uncommon: #22C55E;          /* Softer green */
+  --color-rare: #DC2626;              /* Red */
+  --color-epic: #8A2BE2;              /* Royal purple */
+  --color-legendary: #FFB700;         /* Championship gold */
+  
+  /* Spacing System (8px grid) */
+  --space-1: 0.25rem;  /* 4px */
+  --space-2: 0.5rem;   /* 8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-6: 1.5rem;   /* 24px */
+  --space-8: 2rem;     /* 32px */
+  --space-12: 3rem;    /* 48px */
+  --space-16: 4rem;    /* 64px */
+  
+  /* Border Radius System */
+  --radius-sm: 0.25rem;   /* 4px */
+  --radius-md: 0.5rem;    /* 8px */
+  --radius-lg: 0.75rem;   /* 12px */
+  --radius-xl: 1rem;      /* 16px */
+  --radius-full: 9999px;  /* Full round */
+  
+  /* Shadow System */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+  --shadow-glow: 0 0 20px rgb(59 130 246 / 0.5);
+  
+  /* Animation Timing */
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 350ms;
+  --easing-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  
+  /* Typography - Sharp Modern Style */
+  --font-family-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --font-family-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --font-family-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+  
+  /* Font Weights */
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-heavy: 800;
+  --font-weight-black: 900;
+  
+  /* Backwards compatibility */
+  --background: var(--color-obsidian);
+  --foreground: var(--color-text-primary);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-family-body);
+  --font-mono: var(--font-family-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-family-body);
+  line-height: 1.6;
+  font-weight: var(--font-weight-normal);
+}
+
+/* Base Component Classes */
+.card {
+  background: var(--color-midnight);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-md);
+  transition: all var(--duration-normal) var(--easing-ease);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+/* Button Base Styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1.5;
+  border: none;
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--easing-ease);
+  text-decoration: none;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Button Variants - Limited Palette */
+.btn-primary {
+  background: var(--color-charcoal);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-md);
+  font-weight: var(--font-weight-bold);
+  border: 1px solid var(--color-steel);
+}
+
+.btn-primary:hover {
+  background: var(--color-steel);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--color-text-secondary);
+}
+
+.btn-success {
+  background: var(--color-lime);
+  color: var(--color-obsidian);
+  box-shadow: var(--shadow-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.btn-success:hover {
+  background: #32E010;
+  box-shadow: var(--shadow-lg);
+}
+
+.btn-warning {
+  background: var(--color-amber);
+  color: var(--color-obsidian);
+  box-shadow: var(--shadow-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.btn-warning:hover {
+  background: #E5A500;
+  box-shadow: var(--shadow-lg);
+}
+
+.btn-danger {
+  background: var(--color-crimson);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.btn-danger:hover {
+  background: #E6063A;
+  box-shadow: var(--shadow-lg);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 2px solid var(--color-steel);
+}
+
+.btn-ghost:hover {
+  background: var(--color-gunmetal);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--color-text-primary);
+  border: 2px solid var(--color-steel);
+}
+
+.btn-outline:hover {
+  background: var(--color-steel);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
+}
+
+/* Player Card Rarity Styles - Subtle & Natural */
+.rarity-common {
+  border: 3px solid var(--color-common);
+  border-radius: var(--radius-lg);
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.rarity-uncommon {
+  border: 3px solid var(--color-uncommon);
+  border-radius: var(--radius-lg);
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    0 0 8px rgba(34, 197, 94, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.rarity-rare {
+  border: 3px solid var(--color-rare);
+  border-radius: var(--radius-lg);
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    0 0 8px rgba(220, 38, 38, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.rarity-epic {
+  border: 3px solid var(--color-epic);
+  border-radius: var(--radius-lg);
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    0 0 8px rgba(138, 43, 226, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.rarity-legendary {
+  border: 3px solid var(--color-legendary);
+  border-radius: var(--radius-lg);
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    0 0 12px rgba(255, 183, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Utility Classes */
+.text-gradient-primary {
+  background: linear-gradient(135deg, var(--color-text-primary), var(--color-text-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-family: var(--font-family-display);
+  font-weight: var(--font-weight-heavy);
 }

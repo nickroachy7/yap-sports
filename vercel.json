@@ -1,0 +1,31 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/sync-daily",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/sync-gameday",
+      "schedule": "*/30 * * * 0"
+    },
+    {
+      "path": "/api/cron/process-scoring",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/cron/maintenance",
+      "schedule": "0 3 * * 1"
+    }
+  ],
+  "functions": {
+    "app/api/admin/sync/stats/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/admin/score-week/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cron/sync-daily/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}
