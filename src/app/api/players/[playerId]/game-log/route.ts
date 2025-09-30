@@ -127,11 +127,11 @@ export async function GET(
           const statJson = stats.stat_json;
           playerStats = {
             snp: statJson.snap_percentage || 0,
-            tar: statJson.targets || 0,
-            rec: statJson.receptions || 0,
+            tar: statJson.receiving_targets || 0, // Fixed: was 'targets', now 'receiving_targets'
+            rec: statJson.receptions || 0, // Fixed: API uses 'receptions', not 'receiving_receptions'
             yd: statJson.receiving_yards || statJson.rushing_yards || statJson.passing_yards || 0,
-            ypt: statJson.yards_per_target || 0,
-            ypc: statJson.yards_per_catch || 0,
+            ypt: statJson.yards_per_reception || 0, // Fixed: was 'yards_per_target'
+            ypc: statJson.yards_per_reception || 0, // Fixed: was 'yards_per_catch'
             td: statJson.receiving_touchdowns || statJson.rushing_touchdowns || statJson.passing_touchdowns || 0,
             fum: statJson.fumbles || 0,
             lost: statJson.fumbles_lost || 0

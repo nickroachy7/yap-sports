@@ -2,12 +2,9 @@
 
 import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { createSupabaseBrowserClient } from '@/lib/supabaseClient'
 import Button from './Button'
-import Card from './Card'
 import PlayerCard from './PlayerCard'
 import { GameLog } from './GameLog'
-import { cn } from '@/lib/utils'
 import type { GameLogEntry } from './GameLog'
 
 export type PlayerModalData = {
@@ -15,12 +12,12 @@ export type PlayerModalData = {
   name: string
   position: string
   team: string
-  jersey_number?: string
-  height?: string
-  weight?: string
-  age?: number
-  college?: string
-  years_pro?: number
+  jersey_number?: string | null
+  height?: string | null
+  weight?: string | null
+  age?: number | null
+  college?: string | null
+  years_pro?: number | null
   injury_status?: 'healthy' | 'questionable' | 'doubtful' | 'out'
   stats?: {
     total_fantasy_points: number
@@ -30,6 +27,7 @@ export type PlayerModalData = {
     worst_game: number
     consistency_score: number
     last_5_games_avg: number
+    position_stats?: any
   }
   nextMatchup?: {
     opponent: string
@@ -49,6 +47,10 @@ export interface PlayerModalProps {
   onAddToLineup?: (playerId: string) => void
 }
 
+// Cache player data in sessionStorage for instant loads
+const CACHE_KEY_PREFIX = 'player_modal_v4_' // v4 = position-aware game log
+const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes
+
 export function PlayerModal({
   isOpen,
   onClose,
@@ -56,7 +58,6 @@ export function PlayerModal({
   onViewFullProfile,
   onAddToLineup
 }: PlayerModalProps) {
-  const supabase = createSupabaseBrowserClient()
   const [player, setPlayer] = useState<PlayerModalData | null>(null)
   const [gameLogEntries, setGameLogEntries] = useState<GameLogEntry[]>([])
   const [loading, setLoading] = useState(false)
@@ -66,10 +67,8 @@ export function PlayerModal({
     if (isOpen && playerId) {
       loadPlayerData(playerId)
     } else if (!isOpen) {
-      // Reset state when modal closes
-      setPlayer(null)
-      setGameLogEntries([])
-      setError(null)
+      // Don't reset state immediately - keep it for smooth closing animation
+      // It will be replaced when a new player is opened
     }
   }, [isOpen, playerId])
 
@@ -78,144 +77,73 @@ export function PlayerModal({
       setLoading(true)
       setError(null)
 
-      // Auto-enhance player data (fast database lookup + background API enhancement)
-      try {
-        const enhanceResponse = await fetch(`/api/players/${id}/auto-enhance`)
-        const enhanceData = await enhanceResponse.json()
-        
-        if (enhanceData.success && enhanceData.player) {
-          console.log(`Loaded player data for ${enhanceData.player.name} (source: ${enhanceData.player.data_source})`)
+      // Check cache first
+      const cacheKey = CACHE_KEY_PREFIX + id
+      const cached = sessionStorage.getItem(cacheKey)
+      
+      if (cached) {
+        try {
+          const cachedData = JSON.parse(cached)
+          const age = Date.now() - cachedData.timestamp
           
-          const enhancedPlayer: PlayerModalData = {
-            id: enhanceData.player.id,
-            name: enhanceData.player.name,
-            position: enhanceData.player.position,
-            team: enhanceData.player.team,
-            jersey_number: enhanceData.player.jersey_number,
-            height: enhanceData.player.height,
-            weight: enhanceData.player.weight,
-            age: enhanceData.player.age,
-            college: enhanceData.player.college,
-            years_pro: enhanceData.player.years_pro,
-            injury_status: 'healthy',
-            
-            // Basic stats (could be calculated from game logs)
-            stats: {
-              total_fantasy_points: Math.floor(Math.random() * 300) + 150,
-              games_played: Math.floor(Math.random() * 5) + 10,
-              avg_points_per_game: Math.floor(Math.random() * 10) + 15,
-              best_game: Math.floor(Math.random() * 15) + 25,
-              worst_game: Math.floor(Math.random() * 8) + 5,
-              consistency_score: Math.floor(Math.random() * 30) + 70,
-              last_5_games_avg: Math.floor(Math.random() * 8) + 12
-            },
-            
-            // Simple next matchup (could be enhanced)
-            nextMatchup: {
-              opponent: ['MIA', 'NE', 'NYJ', 'PIT', 'CLE', 'CIN'][Math.floor(Math.random() * 6)],
-              date: '2025-09-15',
-              time: '1:00 PM',
-              is_home: Math.random() > 0.5,
-              opponent_rank_vs_position: Math.floor(Math.random() * 20) + 10,
-              projected_points: Math.floor(Math.random() * 10) + 15
-            }
+          if (age < CACHE_EXPIRY) {
+            console.log(`⚡ Loaded ${cachedData.player.name} from cache (INSTANT!)`)
+            setPlayer(cachedData.player)
+            setGameLogEntries(cachedData.gameLog || [])
+            setLoading(false)
+            return // Use cache!
           }
-          
-          setPlayer(enhancedPlayer)
-        } else {
-          throw new Error(enhanceData.error || 'Failed to load player data')
+        } catch (err) {
+          console.log('Cache parse error, fetching fresh')
         }
-      } catch (enhanceError) {
-        console.error('Error auto-enhancing player:', enhanceError)
-        
-        // Fallback to basic database query
-        const { data: playerData, error: playerError } = await supabase
-          .from('players')
-          .select('*')
-          .eq('id', id)
-          .single()
-
-        if (playerError) throw playerError
-        if (!playerData) throw new Error('Player not found')
-
-        const basicPlayer: PlayerModalData = {
-          id: playerData.id,
-          name: `${playerData.first_name} ${playerData.last_name}`,
-          position: playerData.position,
-          team: playerData.team,
-          jersey_number: 'N/A',
-          height: 'N/A',
-          weight: 'N/A',
-          age: undefined,
-          college: 'N/A',
-          years_pro: undefined,
-          injury_status: 'healthy',
-          stats: {
-            total_fantasy_points: 0,
-            games_played: 0,
-            avg_points_per_game: 0,
-            best_game: 0,
-            worst_game: 0,
-            consistency_score: 0,
-            last_5_games_avg: 0
-          }
-        }
-        setPlayer(basicPlayer)
       }
 
-      // Load real game log data from our API
-      try {
-        const gameLogResponse = await fetch(`/api/players/${id}/game-log`)
-        const gameLogData = await gameLogResponse.json()
-        
-        if (gameLogData.success && gameLogData.gameLogEntries) {
-          console.log(`Loaded ${gameLogData.gameLogEntries.length} real game log entries for ${gameLogData.playerName}`)
-          setGameLogEntries(gameLogData.gameLogEntries)
-        } else {
-          console.warn('Failed to load game log:', gameLogData.error)
-          setGameLogEntries([]) // Empty array if no real data
-        }
-      } catch (gameLogError) {
-        console.error('Error fetching game log:', gameLogError)
-        setGameLogEntries([]) // Empty array on error
+      // Fetch from new optimized endpoint
+      console.log(`📥 Loading player ${id}...`)
+      const response = await fetch(`/api/players/${id}/quick-data`)
+      const data = await response.json()
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to load player')
       }
 
-    } catch (err: unknown) {
+      const loadedPlayer: PlayerModalData = {
+        id: data.player.id,
+        name: data.player.name,
+        position: data.player.position,
+        team: data.player.team,
+        jersey_number: data.player.jersey_number,
+        height: data.player.height,
+        weight: data.player.weight,
+        age: data.player.age,
+        college: data.player.college,
+        years_pro: data.player.years_pro,
+        injury_status: 'healthy',
+        stats: data.player.stats,
+        nextMatchup: data.player.nextMatchup
+      }
+
+      setPlayer(loadedPlayer)
+      setGameLogEntries(data.gameLog || [])
+
+      // Cache the results
+      try {
+        sessionStorage.setItem(cacheKey, JSON.stringify({
+          player: loadedPlayer,
+          gameLog: data.gameLog || [],
+          timestamp: Date.now()
+        }))
+        console.log(`💾 Cached ${loadedPlayer.name} for instant reloads`)
+      } catch (err) {
+        console.log('⚠️ Cache save failed (quota exceeded?)')
+      }
+
+    } catch (err: any) {
       console.error('Error loading player data:', err)
       setError(err.message || 'Failed to load player data')
     } finally {
       setLoading(false)
     }
-  }
-
-  function generateRandomHeight(position: string): string {
-    const heights = {
-      QB: ['6\'2"', '6\'3"', '6\'4"', '6\'5"', '6\'6"'],
-      RB: ['5\'8"', '5\'9"', '5\'10"', '5\'11"', '6\'0"'],
-      WR: ['5\'10"', '5\'11"', '6\'0"', '6\'1"', '6\'2"', '6\'3"'],
-      TE: ['6\'3"', '6\'4"', '6\'5"', '6\'6"', '6\'7"']
-    }
-    const positionHeights = heights[position as keyof typeof heights] || heights.WR
-    return positionHeights[Math.floor(Math.random() * positionHeights.length)]
-  }
-
-  function generateRandomWeight(position: string): string {
-    const weights = {
-      QB: ['215', '220', '225', '230', '235', '240'],
-      RB: ['190', '195', '200', '205', '210', '215'],
-      WR: ['180', '185', '190', '195', '200', '205'],
-      TE: ['240', '245', '250', '255', '260', '265']
-    }
-    const positionWeights = weights[position as keyof typeof weights] || weights.WR
-    return positionWeights[Math.floor(Math.random() * positionWeights.length)] + ' lbs'
-  }
-
-  function getRandomCollege(): string {
-    const colleges = [
-      'Alabama', 'Clemson', 'Ohio State', 'Georgia', 'LSU', 'Oklahoma', 'Texas',
-      'Michigan', 'Penn State', 'Florida', 'Notre Dame', 'USC', 'Oregon', 'Wisconsin'
-    ]
-    return colleges[Math.floor(Math.random() * colleges.length)]
   }
 
   function getInjuryStatusColor(status?: string) {
@@ -249,6 +177,79 @@ export function PlayerModal({
     }
   }, [isOpen, onClose])
 
+  // Normalize position (handles "Quarterback" or "QB")
+  function normalizePosition(position: string): string {
+    const pos = position.toUpperCase();
+    if (pos.includes('QUARTERBACK') || pos === 'QB') return 'QB';
+    if (pos.includes('RUNNING') || pos === 'RB') return 'RB';
+    if (pos.includes('WIDE') || pos.includes('RECEIVER') || pos === 'WR') return 'WR';
+    if (pos.includes('TIGHT') || pos === 'TE') return 'TE';
+    return position;
+  }
+
+  // Render position-specific stats
+  function renderPositionStats() {
+    if (!player?.stats?.position_stats) return null
+
+    const stats = player.stats.position_stats
+    const normalizedPos = normalizePosition(player.position)
+
+    if (normalizedPos === 'QB') {
+      return (
+        <div>
+          <h3 className="text-xl font-bold text-white mb-4">🎯 Passing Stats</h3>
+          <div className="grid grid-cols-4 gap-3">
+            <StatBox label="Pass Yds" value={stats.passing_yards || 0} />
+            <StatBox label="Pass TDs" value={stats.passing_tds || 0} />
+            <StatBox label="INTs" value={stats.passing_ints || 0} />
+            <StatBox label="Comp %" value={`${stats.completion_pct || 0}%`} />
+            <StatBox label="Completions" value={stats.completions || 0} />
+            <StatBox label="Attempts" value={stats.attempts || 0} />
+            <StatBox label="YPA" value={stats.yards_per_attempt || 0} />
+            <StatBox label="QB Rating" value={stats.qb_rating?.toFixed(1) || '0.0'} />
+          </div>
+        </div>
+      )
+    }
+
+    if (normalizedPos === 'RB') {
+      return (
+        <div>
+          <h3 className="text-xl font-bold text-white mb-4">🏃 Rushing & Receiving Stats</h3>
+          <div className="grid grid-cols-4 gap-3">
+            <StatBox label="Rush Yds" value={stats.rushing_yards || 0} />
+            <StatBox label="Rush TDs" value={stats.rushing_tds || 0} />
+            <StatBox label="Carries" value={stats.rushing_attempts || 0} />
+            <StatBox label="YPC" value={stats.yards_per_carry?.toFixed(1) || '0.0'} />
+            <StatBox label="Receptions" value={stats.receptions || 0} />
+            <StatBox label="Rec Yds" value={stats.receiving_yards || 0} />
+            <StatBox label="Rec TDs" value={stats.receiving_tds || 0} />
+            <StatBox label="Targets" value={stats.targets || 0} />
+          </div>
+        </div>
+      )
+    }
+
+    if (normalizedPos === 'WR' || normalizedPos === 'TE') {
+      return (
+        <div>
+          <h3 className="text-xl font-bold text-white mb-4">🎯 Receiving Stats</h3>
+          <div className="grid grid-cols-4 gap-3">
+            <StatBox label="Receptions" value={stats.receptions || 0} />
+            <StatBox label="Rec Yds" value={stats.receiving_yards || 0} />
+            <StatBox label="Rec TDs" value={stats.receiving_tds || 0} />
+            <StatBox label="Targets" value={stats.targets || 0} />
+            <StatBox label="YPR" value={stats.yards_per_reception?.toFixed(1) || '0.0'} />
+            <StatBox label="Catch %" value={`${stats.catch_pct || 0}%`} />
+            <StatBox label="Long" value={stats.longest_reception || 0} />
+          </div>
+        </div>
+      )
+    }
+
+    return null
+  }
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -263,9 +264,10 @@ export function PlayerModal({
           >
             {/* Modal */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.15 }}
               onClick={(e) => e.stopPropagation()}
               className="w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-xl"
               style={{
@@ -310,14 +312,14 @@ export function PlayerModal({
                             team: player.team
                           }}
                           size="large"
-                          rarity="epic" // Could be dynamic based on player tier
+                          rarity="epic"
                           stats={{
                             points: player.stats?.total_fantasy_points,
                             games: player.stats?.games_played,
                             avgPoints: player.stats?.avg_points_per_game
                           }}
-                          contractsRemaining={Math.floor(Math.random() * 5) + 1} // Mock data
-                          currentSellValue={Math.floor(Math.random() * 500) + 100} // Mock data
+                          contractsRemaining={3}
+                          currentSellValue={Math.floor((player.stats?.total_fantasy_points || 100) * 2)}
                           showActions={false}
                           interactive={false}
                         />
@@ -333,7 +335,7 @@ export function PlayerModal({
                           </h2>
                           <div className="flex items-center gap-4 mb-3">
                             <span className="text-xl font-bold" style={{color: 'var(--color-text-secondary)'}}>
-                              {player.position} • {player.team} • #{player.jersey_number}
+                              {player.position} • {player.team} {player.jersey_number ? `• #${player.jersey_number}` : ''}
                             </span>
                             <span 
                               className="px-3 py-1 rounded-full text-sm font-bold"
@@ -346,13 +348,19 @@ export function PlayerModal({
                             </span>
                           </div>
                           <div className="text-base" style={{color: 'var(--color-text-secondary)'}}>
-                            {player.height} • {player.weight} • {player.age} years old • {player.college} • {player.years_pro} years pro
+                            {[
+                              player.height,
+                              player.weight,
+                              player.age ? `${player.age} years old` : null,
+                              player.college,
+                              player.years_pro ? `${player.years_pro} years pro` : null
+                            ].filter(Boolean).join(' • ') || 'No additional data available'}
                           </div>
                         </div>
 
-                        {/* Season Stats Grid */}
+                        {/* Fantasy Stats Grid */}
                         <div>
-                          <h3 className="text-xl font-bold text-white mb-4">📊 Season Stats</h3>
+                          <h3 className="text-xl font-bold text-white mb-4">📊 Season Fantasy Stats</h3>
                           <div className="grid grid-cols-3 gap-4">
                             <div className="text-center p-4 rounded-lg" style={{backgroundColor: 'var(--color-slate)'}}>
                               <div className="text-2xl font-black text-white">
@@ -461,13 +469,18 @@ export function PlayerModal({
                       </div>
                     </div>
 
+                    {/* Position-Specific Stats */}
+                    {renderPositionStats()}
+
                     {/* Bottom Section - Full Season Game Log */}
-                    <div className="border-t pt-6" style={{borderColor: 'var(--color-steel)'}}>
-                      <h3 className="text-xl font-bold text-white mb-4">📈 Full Season Game Log</h3>
-                      <div className="max-h-80 overflow-y-auto">
-                        <GameLog entries={gameLogEntries} compact={false} />
+                    {gameLogEntries.length > 0 && (
+                      <div className="border-t pt-6 mt-6" style={{borderColor: 'var(--color-steel)'}}>
+                        <h3 className="text-xl font-bold text-white mb-4">📈 Full Season Game Log</h3>
+                        <div className="max-h-80 overflow-y-auto">
+                          <GameLog entries={gameLogEntries} position={player.position} compact={false} />
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </>
               ) : null}
@@ -476,5 +489,19 @@ export function PlayerModal({
         </>
       )}
     </AnimatePresence>
+  )
+}
+
+// Helper component for stat boxes
+function StatBox({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="text-center p-3 rounded-lg" style={{backgroundColor: 'var(--color-slate)'}}>
+      <div className="text-lg font-black text-white">
+        {value}
+      </div>
+      <div className="text-xs" style={{color: 'var(--color-text-secondary)'}}>
+        {label}
+      </div>
+    </div>
   )
 }

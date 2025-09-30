@@ -73,7 +73,7 @@ export interface Card {
 
 export interface UserCard {
   id: string;
-  user_team_id: string;
+  team_id: string;
   card_id: string;
   remaining_contracts: number;
   current_sell_value: number;
@@ -101,7 +101,7 @@ export interface Pack {
 
 export interface UserPack {
   id: string;
-  user_team_id: string;
+  team_id: string;
   pack_id: string;
   status: 'unopened' | 'opened';
   pre_roll_seed?: string;
@@ -128,7 +128,7 @@ export interface Week {
 
 export interface Lineup {
   id: string;
-  user_team_id: string;
+  team_id: string;
   week_id: string;
   submitted_at?: string;
   total_points?: number;
@@ -190,7 +190,7 @@ export interface TokenType {
 
 export interface UserToken {
   id: string;
-  user_team_id: string;
+  team_id: string;
   token_type_id: string;
   uses_remaining: number;
   status: 'available' | 'applied' | 'consumed';

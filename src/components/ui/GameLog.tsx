@@ -13,22 +13,13 @@ export interface GameLogEntry {
   actualPoints?: number
   isHome: boolean
   gameStatus: 'upcoming' | 'live' | 'completed'
-  playerStats?: {
-    snp?: number     // Snap percentage
-    tar?: number     // Targets
-    rec?: number     // Receptions  
-    yd?: number      // Yards
-    ypt?: number     // Yards per target
-    ypc?: number     // Yards per catch
-    td?: number      // Touchdowns
-    fum?: number     // Fumbles
-    lost?: number    // Fumbles lost
-  }
+  playerStats?: any  // Position-specific stats
 }
 
 export interface GameLogProps {
   entries: GameLogEntry[]
   playerName?: string
+  position?: string  // NEW: Position to determine which columns to show
   className?: string
   compact?: boolean
 }
@@ -63,12 +54,71 @@ const formatTime = (timeString: string) => {
   return timeString
 }
 
+// Normalize position names
+function normalizePosition(position?: string): string {
+  if (!position) return 'WR';
+  const pos = position.toUpperCase();
+  if (pos.includes('QUARTERBACK') || pos === 'QB') return 'QB';
+  if (pos.includes('RUNNING') || pos === 'RB') return 'RB';
+  if (pos.includes('WIDE') || pos.includes('RECEIVER') || pos === 'WR') return 'WR';
+  if (pos.includes('TIGHT') || pos === 'TE') return 'TE';
+  return 'WR'; // Default to WR
+}
+
 export function GameLog({
   entries,
   playerName,
+  position,
   className,
   compact = false
 }: GameLogProps) {
+  const normalizedPos = normalizePosition(position);
+
+  // Define columns based on position
+  const getColumns = () => {
+    switch (normalizedPos) {
+      case 'QB':
+        return [
+          { key: 'cmp', label: 'CMP', span: 2 },
+          { key: 'att', label: 'ATT', span: 2 },
+          { key: 'pct', label: 'PCT%', span: 2 },
+          { key: 'yds', label: 'YDS', span: 2 },
+          { key: 'ypa', label: 'YPA', span: 2 },
+          { key: 'td', label: 'TD', span: 2 },
+          { key: 'int', label: 'INT', span: 2 },
+          { key: 'rating', label: 'RATING', span: 2 }
+        ];
+      
+      case 'RB':
+        return [
+          { key: 'car', label: 'CAR', span: 2 },
+          { key: 'yds', label: 'YDS', span: 2 },
+          { key: 'ypc', label: 'YPC', span: 2 },
+          { key: 'td', label: 'TD', span: 2 },
+          { key: 'tar', label: 'TAR', span: 2 },
+          { key: 'rec', label: 'REC', span: 2 },
+          { key: 'rec_yds', label: 'REC YDS', span: 2 },
+          { key: 'rec_td', label: 'REC TD', span: 2 }
+        ];
+      
+      case 'WR':
+      case 'TE':
+      default:
+        return [
+          { key: 'tar', label: 'TAR', span: 2 },
+          { key: 'rec', label: 'REC', span: 2 },
+          { key: 'yds', label: 'YDS', span: 3 },
+          { key: 'ypr', label: 'YPR', span: 2 },
+          { key: 'td', label: 'TD', span: 2 },
+          { key: 'lng', label: 'LONG', span: 2 },
+          { key: 'fum', label: 'FUM', span: 1 }
+        ];
+    }
+  };
+
+  const columns = getColumns();
+  const totalStatSpan = columns.reduce((sum, col) => sum + col.span, 0);
+
   return (
     <div className={cn("space-y-2", className)}>
       {/* Header */}
@@ -83,38 +133,39 @@ export function GameLog({
       )}
 
       {/* Column Headers */}
-      <div className="grid grid-cols-24 gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider"
-           style={{color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-steel)'}}>
+      <div className={`grid gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider`}
+           style={{
+             color: 'var(--color-text-secondary)', 
+             borderBottom: '1px solid var(--color-steel)',
+             gridTemplateColumns: `repeat(${8 + totalStatSpan}, minmax(0, 1fr))`
+           }}>
         <div className="col-span-1 text-center">WK</div>
         <div className="col-span-3">OPP</div>
         <div className="col-span-2 text-center">PROJ</div>
         <div className="col-span-2 text-center">FPTS</div>
-        <div className="col-span-2 text-center">SNP%</div>
-        <div className="col-span-2 text-center">TAR</div>
-        <div className="col-span-2 text-center">REC</div>
-        <div className="col-span-2 text-center">YD</div>
-        <div className="col-span-2 text-center">YPT</div>
-        <div className="col-span-2 text-center">YPC</div>
-        <div className="col-span-2 text-center">TD</div>
-        <div className="col-span-1 text-center">FUM</div>
-        <div className="col-span-1 text-center">LOST</div>
+        {columns.map((col) => (
+          <div key={col.key} className={`col-span-${col.span} text-center`}>
+            {col.label}
+          </div>
+        ))}
       </div>
 
       {/* Game Entries */}
       <div>
         {entries.map((entry, index) => (
           <motion.div
-            key={entry.id}
+            key={`${entry.id}-${entry.week}-${index}`}
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: index * 0.1 }}
             className={cn(
-              "grid grid-cols-24 gap-2 px-4 py-3 transition-all duration-200",
+              "grid gap-2 px-4 py-3 transition-all duration-200",
               "hover:brightness-110",
               entry.gameStatus === 'live' && "ring-1 ring-green-500/30"
             )}
             style={{
-              backgroundColor: index % 2 === 1 ? 'var(--color-gunmetal)' : 'transparent'
+              backgroundColor: index % 2 === 1 ? 'var(--color-gunmetal)' : 'transparent',
+              gridTemplateColumns: `repeat(${8 + totalStatSpan}, minmax(0, 1fr))`
             }}
           >
             {/* Week */}
@@ -165,68 +216,18 @@ export function GameLog({
               </div>
             </div>
 
-            {/* SNP% */}
-            <div className="col-span-2 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.snp ? `${entry.playerStats.snp}%` : '-'}
+            {/* Position-Specific Stats */}
+            {columns.map((col) => (
+              <div key={col.key} className={`col-span-${col.span} flex items-center justify-center`}>
+                <div className="text-sm font-semibold text-white">
+                  {entry.playerStats?.[col.key] !== undefined && entry.playerStats?.[col.key] !== null
+                    ? typeof entry.playerStats[col.key] === 'number' && (col.key.includes('p') || col.key === 'rating' || col.key === 'ypa' || col.key === 'ypc' || col.key === 'ypr')
+                      ? entry.playerStats[col.key].toFixed(1)  // Percentages, averages, and ratings
+                      : entry.playerStats[col.key]
+                    : '-'}
+                </div>
               </div>
-            </div>
-
-            {/* TAR */}
-            <div className="col-span-2 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.tar || '-'}
-              </div>
-            </div>
-
-            {/* REC */}
-            <div className="col-span-2 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.rec || '-'}
-              </div>
-            </div>
-
-            {/* YD */}
-            <div className="col-span-2 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.yd || '-'}
-              </div>
-            </div>
-
-            {/* YPT */}
-            <div className="col-span-2 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.ypt || '-'}
-              </div>
-            </div>
-
-            {/* YPC */}
-            <div className="col-span-2 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.ypc || '-'}
-              </div>
-            </div>
-
-            {/* TD */}
-            <div className="col-span-2 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.td || '-'}
-              </div>
-            </div>
-
-            {/* FUM */}
-            <div className="col-span-1 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.fum || '-'}
-              </div>
-            </div>
-
-            {/* LOST */}
-            <div className="col-span-1 flex items-center justify-center">
-              <div className="text-sm font-semibold text-white">
-                {entry.playerStats?.lost || '-'}
-              </div>
-            </div>
+            ))}
           </motion.div>
         ))}
       </div>

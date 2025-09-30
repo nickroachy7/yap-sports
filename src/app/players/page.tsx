@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabaseClient'
-import { Card, Button, CollectionListView, PlayerModal, LoadingSkeleton, StandardLayout, PageHeader, ContentContainer, SearchInput, Select, FilterContainer, FilterGrid, QuickFilterActions, FilterToggle, FilterStats } from '@/components/ui'
+import { useAuth } from '@/contexts/AuthContext'
+import { Card, Button, CollectionListView, PlayerDetailInline, LoadingSkeleton, StandardLayout, PageHeader, ContentContainer, SearchInput, Select, FilterContainer, FilterGrid, QuickFilterActions, FilterToggle, FilterStats } from '@/components/ui'
 import type { CollectionItem } from '@/components/ui'
 
 type Player = {
@@ -52,21 +53,31 @@ type FilterOptions = {
 
 export default function PlayersPage() {
   const router = useRouter()
-  const supabase = createSupabaseBrowserClient()
+  const { user, loading: authLoading, initialized } = useAuth()
+  const supabase = useMemo(() => createSupabaseBrowserClient(), [])
   
-  const [players, setPlayers] = useState<PlayerListItem[]>([])
+  const [allPlayers, setAllPlayers] = useState<PlayerListItem[]>([]) // All players in memory
   const [filteredPlayers, setFilteredPlayers] = useState<PlayerListItem[]>([])
+  const [displayedPlayers, setDisplayedPlayers] = useState<PlayerListItem[]>([]) // What's actually rendered
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
-  const [isModalOpen, setIsModalOpen] = useState(false)
   const [isPopulating, setIsPopulating] = useState(false)
+  const [displayLimit, setDisplayLimit] = useState(100) // How many to render at once
   const [filters, setFilters] = useState<FilterOptions>({
     position: 'all',
     team: 'all',
     searchTerm: '',
     sortBy: 'name',
     sortOrder: 'asc'
+  })
+
+  console.log('[PlayersPage] Render:', { 
+    hasUser: !!user, 
+    authLoading, 
+    initialized, 
+    playersLoaded: allPlayers.length > 0,
+    loading 
   })
 
   const positions = ['QB', 'RB', 'WR', 'TE']
@@ -77,17 +88,38 @@ export default function PlayersPage() {
     'TEN', 'WAS'
   ]
 
+  // Wait for auth to initialize, then load players
   useEffect(() => {
     let isMounted = true
-    let loadingTimeout: NodeJS.Timeout
     
     async function initializePlayers() {
+      // Wait for auth to be initialized
+      if (!initialized) {
+        console.log('[PlayersPage] Waiting for auth to initialize...')
+        return
+      }
+      
+      // Auth is initialized, now check if user is signed in
+      if (!user) {
+        console.log('[PlayersPage] No user found after auth initialized')
+        if (isMounted) {
+          setLoading(false)
+          setError(null)
+          setPlayers([])
+          setFilteredPlayers([])
+        }
+        return
+      }
+
+      // User is authenticated and auth is initialized - load players
       if (!isMounted) return
+      
+      console.log('[PlayersPage] Auth initialized with user, loading players...')
       
       try {
         await loadPlayers()
       } catch (error) {
-        console.error('Players initialization error:', error)
+        console.error('[PlayersPage] Initialization error:', error)
         if (isMounted) {
           setLoading(false)
           setError('Failed to load players')
@@ -99,46 +131,21 @@ export default function PlayersPage() {
     
     return () => {
       isMounted = false
-      if (loadingTimeout) {
-        clearTimeout(loadingTimeout)
-      }
     }
-  }, [])
+  }, [initialized, user]) // Re-run when auth state changes
 
   useEffect(() => {
     applyFilters()
-  }, [players, filters])
-
-  // Listen for auth state changes to handle delayed session loading
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Players: Auth state change detected:', event, !!session)
-      
-      // Handle sign out - clear players data  
-      if (event === 'SIGNED_OUT') {
-        console.log('Players: User signed out, clearing data')
-        setPlayers([])
-        setFilteredPlayers([])
-        return
-      }
-      
-      // If we get a session after initial load and players haven't loaded yet
-      if (event === 'SIGNED_IN' && session && players.length === 0 && !loading) {
-        console.log('Players: User signed in, loading players...')
-        await loadPlayers()
-      }
-      
-      // If session changes while players are loaded, reload them
-      if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session && players.length === 0) {
-        console.log('Players: Session refreshed, reloading players...')
-        await loadPlayers()
-      }
-    })
-
-    return () => {
-      subscription.unsubscribe()
+    // Close player detail when filters change (user is searching for different player)
+    if (selectedPlayerId) {
+      setSelectedPlayerId(null)
     }
-  }, [players.length, loading])
+  }, [allPlayers, filters])
+  
+  useEffect(() => {
+    // Only render displayLimit number of filtered players
+    setDisplayedPlayers(filteredPlayers.slice(0, displayLimit))
+  }, [filteredPlayers, displayLimit])
 
   async function loadPlayers() {
     try {
@@ -146,26 +153,71 @@ export default function PlayersPage() {
       setError(null)
       console.log('🔍 Loading players...');
       
-      // Load all active players
-      const { data: playersData, error } = await supabase
-        .from('players')
-        .select('*')
-        .eq('active', true)
-        .order('last_name', { ascending: true })
+      // Check cache first
+      const cacheKey = `players_list_v3` // v3 = loads ALL players with batching
+      const cached = sessionStorage.getItem(cacheKey)
       
-      console.log('Players query result:', { count: playersData?.length, error: error?.message });
-      
-      if (error) {
-        throw new Error(`Failed to load players: ${error.message}`)
+      if (cached) {
+        try {
+          const cachedData = JSON.parse(cached)
+          console.log('⚡ Loaded from cache:', cachedData.players.length, 'players (INSTANT!)')
+          setAllPlayers(cachedData.players)
+          setLoading(false)
+          return // Use cache, skip database query
+        } catch (err) {
+          console.log('Cache parse error, fetching fresh data')
+        }
       }
       
+      // Load ALL active players - OPTIMIZED: only 5 fields per player
+      // With 5 fields, even 10,949 players = only ~500KB
+      console.log('📥 Loading all players from database...')
+      
+      // Fetch in batches to bypass Supabase 1,000 row limit
+      let allPlayersData: any[] = []
+      let from = 0
+      const batchSize = 1000
+      let hasMore = true
+      
+      while (hasMore) {
+        const { data: batch, error } = await supabase
+          .from('players')
+          .select('id, first_name, last_name, position, team')
+          .eq('active', true)
+          .order('last_name', { ascending: true })
+          .range(from, from + batchSize - 1)
+        
+        if (error) {
+          throw new Error(`Failed to load players: ${error.message}`)
+        }
+        
+        if (batch && batch.length > 0) {
+          allPlayersData = allPlayersData.concat(batch)
+          console.log(`  Loaded batch: ${batch.length} players (total: ${allPlayersData.length})`)
+          
+          if (batch.length < batchSize) {
+            hasMore = false // Last batch
+          } else {
+            from += batchSize
+          }
+        } else {
+          hasMore = false
+        }
+      }
+      
+      console.log('Players query result:', { 
+        loaded: allPlayersData.length
+      });
+      
       // Check if we have any players
-      if (!playersData || playersData.length === 0) {
+      if (!allPlayersData || allPlayersData.length === 0) {
         console.log('⚠️ No players found in database');
-        setPlayers([])
+        setAllPlayers([])
         setError(null) // Don't treat empty database as an error
         return
       }
+      
+      const playersData = allPlayersData
       
       // Convert to PlayerListItem format with mock stats
       const playersList: PlayerListItem[] = playersData.map((player, index) => ({
@@ -194,9 +246,20 @@ export default function PlayersPage() {
         injuryStatus: Math.random() > 0.9 ? 'questionable' : 'healthy'
       }))
       
-      console.log('✅ Players loaded:', playersList.length);
-      console.log('Sample player data:', playersList.slice(0, 2));
-      setPlayers(playersList)
+      console.log('✅ All players loaded:', playersList.length);
+      console.log('💾 Caching for instant future loads...');
+      setAllPlayers(playersList)
+      
+      // Cache the results for instant loads on refresh
+      try {
+        sessionStorage.setItem(cacheKey, JSON.stringify({
+          players: playersList,
+          timestamp: Date.now()
+        }))
+        console.log('💾 Cached! Next load will be INSTANT ⚡')
+      } catch (err) {
+        console.log('⚠️ Cache save error (quota exceeded?)')
+      }
     } catch (err) {
       console.error('❌ Error loading players:', err)
       setError('Failed to load players: ' + (err as Error).message)
@@ -206,7 +269,8 @@ export default function PlayersPage() {
   }
 
   function applyFilters() {
-    let filtered = [...players]
+    // Filter ALL players in memory (instant!)
+    let filtered = [...allPlayers]
     
     // Position filter
     if (filters.position !== 'all') {
@@ -218,7 +282,7 @@ export default function PlayersPage() {
       filtered = filtered.filter(player => player.team === filters.team)
     }
     
-    // Search filter
+    // Search filter - NOW SEARCHES ALL PLAYERS!
     if (filters.searchTerm) {
       const searchLower = filters.searchTerm.toLowerCase()
       filtered = filtered.filter(player => 
@@ -262,22 +326,41 @@ export default function PlayersPage() {
     })
     
     setFilteredPlayers(filtered)
+    // Reset display limit when filters change
+    setDisplayLimit(100)
   }
 
   function handlePlayerClick(playerId: string) {
-    setSelectedPlayerId(playerId)
-    setIsModalOpen(true)
+    // Toggle: if clicking same player, close detail view
+    if (selectedPlayerId === playerId) {
+      setSelectedPlayerId(null)
+    } else {
+      setSelectedPlayerId(playerId)
+      // Scroll to top of page smoothly
+      setTimeout(() => {
+        window.scrollTo({ 
+          top: 0, 
+          behavior: 'smooth' 
+        })
+      }, 100)
+    }
   }
 
   function handleViewFullProfile(playerId: string) {
-    setIsModalOpen(false)
     router.push(`/players/${playerId}`)
   }
 
   function handleAddToLineup(playerId: string) {
+    setSelectedPlayerId(null)
     // TODO: Implement add to lineup functionality
     console.log('Add to lineup:', playerId)
-    setIsModalOpen(false)
+  }
+
+  function showMorePlayers() {
+    // Just increase the display limit - data is already in memory!
+    const newLimit = displayLimit + 100
+    console.log(`Showing more players... (${displayLimit} → ${newLimit})`)
+    setDisplayLimit(newLimit)
   }
 
   function resetFilters() {
@@ -361,16 +444,16 @@ export default function PlayersPage() {
   return (
     <StandardLayout>
       {/* Compact Header - Full Width */}
-      <div className="border-b" style={{borderColor: 'var(--color-steel)'}}>
+      <div className="sticky top-0 z-50 border-b" style={{backgroundColor: 'var(--color-obsidian)', borderColor: 'var(--color-steel)'}}>
         {/* Top Info Bar */}
         <div className="flex items-center justify-between px-6 py-3">
           <div className="flex items-center space-x-4">
             <h1 className="text-xl font-bold text-white">NFL Players</h1>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold text-white">{players.length}</div>
+            <div className="text-2xl font-bold text-white">{allPlayers.length.toLocaleString()}</div>
             <div className="text-xs text-gray-400">
-              Showing {filteredPlayers.length} of {players.length}
+              Showing {displayedPlayers.length} of {filteredPlayers.length} {filters.searchTerm || filters.position !== 'all' || filters.team !== 'all' ? 'filtered' : 'players'}
             </div>
           </div>
         </div>
@@ -446,20 +529,38 @@ export default function PlayersPage() {
       </div>
 
       {/* Main Content */}
+      {/* Player Detail Section (Inline) - Full width when selected */}
+      {selectedPlayerId ? (
+        <div id="player-detail-section" className="w-full">
+          <PlayerDetailInline
+            playerId={selectedPlayerId}
+            onClose={() => setSelectedPlayerId(null)}
+            onViewFullProfile={handleViewFullProfile}
+            onAddToLineup={handleAddToLineup}
+          />
+        </div>
+      ) : null}
+      
       <ContentContainer>
-        <div className="py-6">
+        <div>
         
-        {/* Players List */}
-        <Card className="py-6">
-          <div className="flex items-center justify-between mb-6 px-6">
-            <h2 className="text-xl font-bold text-white">All Players</h2>
-            <div className="text-sm text-gray-400">
-              Showing {filteredPlayers.length} of {players.length} players
+        {/* Players List - Shows when no player is selected */}
+        {!selectedPlayerId && (
+          <Card className="p-0">
+          {authLoading || !initialized ? (
+            <div className="space-y-4 px-6 py-6">
+              <div className="text-center py-4">
+                <div className="text-lg font-semibold text-white mb-2">Initializing...</div>
+                <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
+                  Authenticating and preparing data
+                </div>
+              </div>
+              {[...Array(5)].map((_, i) => (
+                <LoadingSkeleton key={i} />
+              ))}
             </div>
-          </div>
-
-          {loading ? (
-            <div className="space-y-4">
+          ) : loading ? (
+            <div className="space-y-4 px-6 py-6">
               <div className="text-center py-4">
                 <div className="text-lg font-semibold text-white mb-2">Loading Players...</div>
                 <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
@@ -471,7 +572,7 @@ export default function PlayersPage() {
               ))}
             </div>
           ) : error ? (
-            <div className="text-center py-8">
+            <div className="text-center py-8 px-6">
               <div className="text-lg font-bold text-white mb-2">Failed to load players</div>
               <p className="text-sm text-gray-400 mb-4">{error}</p>
               <div className="space-y-3">
@@ -493,15 +594,33 @@ export default function PlayersPage() {
                 </Button>
               </div>
             </div>
-          ) : filteredPlayers.length > 0 ? (
-            <CollectionListView 
-              items={transformToCollectionItems(filteredPlayers)}
-              onItemClick={(playerId) => handlePlayerClick(playerId)}
-              showActions={true}
-              filterType="players"
-            />
-          ) : players.length === 0 ? (
-            <div className="text-center py-12">
+          ) : displayedPlayers.length > 0 ? (
+            <>
+              <CollectionListView 
+                items={transformToCollectionItems(displayedPlayers)}
+                onItemClick={(playerId) => handlePlayerClick(playerId)}
+                showActions={true}
+                filterType="players"
+              />
+              
+              {/* Show More Button */}
+              {displayedPlayers.length < filteredPlayers.length && (
+                <div className="p-6 border-t text-center" style={{borderColor: 'var(--color-steel)'}}>
+                  <div className="text-sm text-gray-400 mb-3">
+                    Showing {displayedPlayers.length.toLocaleString()} of {filteredPlayers.length.toLocaleString()} 
+                    {filters.searchTerm || filters.position !== 'all' || filters.team !== 'all' ? ' filtered' : ''} players
+                  </div>
+                  <Button 
+                    variant="primary" 
+                    onClick={showMorePlayers}
+                  >
+                    Show More (+100)
+                  </Button>
+                </div>
+              )}
+            </>
+          ) : allPlayers.length === 0 ? (
+            <div className="text-center py-12 px-6">
               <div className="text-4xl mb-4">🏈</div>
               <h3 className="text-xl font-bold text-white mb-2">No Players in Database</h3>
               <p style={{color: 'var(--color-text-secondary)'}} className="mb-6">
@@ -525,26 +644,22 @@ export default function PlayersPage() {
                 </div>
               )}
             </div>
-          ) : (
-            <div className="text-center py-8">
+          ) : filteredPlayers.length === 0 ? (
+            <div className="text-center py-8 px-6">
               <div className="text-lg font-bold text-white mb-2">No players found</div>
-              <p className="text-sm text-gray-400 mb-4">Try adjusting your filters</p>
+              <p className="text-sm text-gray-400 mb-4">
+                {filters.searchTerm 
+                  ? `No players matching "${filters.searchTerm}" in all ${allPlayers.length.toLocaleString()} players`
+                  : 'Try adjusting your filters'}
+              </p>
               <Button variant="primary" onClick={resetFilters}>
                 Reset Filters
               </Button>
             </div>
-          )}
+          ) : null}
         </Card>
+        )}
         </div>
-
-      {/* Player Modal */}
-      <PlayerModal 
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        playerId={selectedPlayerId}
-        onViewFullProfile={handleViewFullProfile}
-        onAddToLineup={handleAddToLineup}
-      />
       </ContentContainer>
     </StandardLayout>
   )

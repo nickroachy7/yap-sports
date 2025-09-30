@@ -38,23 +38,46 @@ export async function POST(req: NextRequest) {
 
     console.log(`Syncing stats for season ${targetSeasonYear}, dates: ${targetDates?.join(', ') || 'N/A'}`);
 
-    // Get our players for mapping external IDs
-    const { data: players, error: playersError } = await supabaseAdmin
-      .from('players')
-      .select('id, external_id, first_name, last_name, position, team')
-      .eq('active', true);
+    // Get our players for mapping external IDs (fetch ALL in batches to bypass 1,000 row limit)
+    console.log('📥 Loading all active players for stat mapping...');
+    let allPlayers: any[] = [];
+    let playerFrom = 0;
+    const playerBatchSize = 1000;
+    let hasMorePlayers = true;
 
-    if (playersError) {
-      console.error('Error fetching players:', playersError);
-      return NextResponse.json({ 
-        error: 'Failed to fetch players for stat mapping',
-        details: playersError.message 
-      }, { status: 500 });
+    while (hasMorePlayers) {
+      const { data: playerBatch, error: playersError } = await supabaseAdmin
+        .from('players')
+        .select('id, external_id, first_name, last_name, position, team')
+        .eq('active', true)
+        .order('id', { ascending: true })
+        .range(playerFrom, playerFrom + playerBatchSize - 1);
+
+      if (playersError) {
+        console.error('Error fetching players:', playersError);
+        return NextResponse.json({ 
+          error: 'Failed to fetch players for stat mapping',
+          details: playersError.message 
+        }, { status: 500 });
+      }
+
+      if (playerBatch && playerBatch.length > 0) {
+        allPlayers = allPlayers.concat(playerBatch);
+        console.log(`  Loaded player batch: ${playerBatch.length} players (total: ${allPlayers.length})`);
+
+        if (playerBatch.length < playerBatchSize) {
+          hasMorePlayers = false; // Last batch
+        } else {
+          playerFrom += playerBatchSize;
+        }
+      } else {
+        hasMorePlayers = false;
+      }
     }
 
     // Create player lookup map
-    const playerMap = new Map(players.map(p => [p.external_id, p]));
-    console.log(`Found ${players.length} active players for stat mapping`);
+    const playerMap = new Map(allPlayers.map(p => [p.external_id, p]));
+    console.log(`✅ Found ${allPlayers.length} active players for stat mapping`);
 
     // Get sports events for context (optional)
     let sportsEventsMap = new Map();
@@ -156,7 +179,8 @@ export async function POST(req: NextRequest) {
             
             // Receiving stats
             receiving_targets: stat.receiving_targets || 0,
-            receiving_receptions: stat.receiving_receptions || 0,
+            receiving_receptions: stat.receptions || 0, // API uses "receptions" not "receiving_receptions"
+            receptions: stat.receptions || 0, // Store as both for compatibility
             receiving_yards: stat.receiving_yards || 0,
             receiving_touchdowns: stat.receiving_touchdowns || 0,
             
@@ -243,7 +267,7 @@ export async function POST(req: NextRequest) {
         updated: updatedCount,
         player_mapped: playerMappedCount,
         game_mapped: gameMappedCount,
-        players_available: players.length,
+        players_available: allPlayers.length,
         games_available: sportsEventsMap.size,
         errors: errors.length
       },

@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
               sportsEventId = newEvent.id;
             }
 
-            // Format the stat data
+            // Format the stat data with correct BallDontLie API field mapping
             const statData = {
               sports_event_id: sportsEventId,
               player_id: ourPlayer.id,
@@ -103,26 +103,57 @@ export async function POST(req: NextRequest) {
               game_date: gameDate.toISOString().split('T')[0],
               finalized: true,
               stat_json: {
+                // Basic info
+                player_name: `${stat.player.first_name} ${stat.player.last_name}`,
+                team: stat.team?.abbreviation || null,
+                position: stat.player?.position || null,
+                
+                // Passing stats
+                passing_attempts: stat.passing_attempts || 0,
+                passing_completions: stat.passing_completions || 0,
                 passing_yards: stat.passing_yards || 0,
                 passing_touchdowns: stat.passing_touchdowns || 0,
+                passing_interceptions: stat.passing_interceptions || 0,
+                yards_per_pass_attempt: stat.yards_per_pass_attempt || 0,
+                qb_rating: stat.qb_rating || 0,
+                sacks: stat.sacks || 0,
+                
+                // Rushing stats
+                rushing_attempts: stat.rushing_attempts || 0,
                 rushing_yards: stat.rushing_yards || 0,
                 rushing_touchdowns: stat.rushing_touchdowns || 0,
+                yards_per_rush_attempt: stat.yards_per_rush_attempt || 0,
+                
+                // Receiving stats (note: API uses 'receptions', not 'receiving_receptions')
+                receiving_targets: stat.receiving_targets || 0,
+                receptions: stat.receptions || 0,
                 receiving_yards: stat.receiving_yards || 0,
                 receiving_touchdowns: stat.receiving_touchdowns || 0,
-                receptions: stat.receptions || 0,
+                yards_per_reception: stat.yards_per_reception || 0,
+                
+                // Other stats
+                fumbles: stat.fumbles || 0,
+                fumbles_lost: stat.fumbles_lost || 0,
+                fumbles_recovered: stat.fumbles_recovered || 0,
+                
+                // Fantasy points calculation (standard scoring)
                 fantasy_points: (
                   (stat.passing_yards || 0) * 0.04 +
                   (stat.passing_touchdowns || 0) * 4 +
+                  (stat.passing_interceptions || 0) * -2 +
                   (stat.rushing_yards || 0) * 0.1 +
                   (stat.rushing_touchdowns || 0) * 6 +
                   (stat.receiving_yards || 0) * 0.1 +
                   (stat.receiving_touchdowns || 0) * 6 +
-                  (stat.receptions || 0) * 1
+                  (stat.receptions || 0) * 1 +
+                  (stat.fumbles_lost || 0) * -2
                 ),
+                
+                // Meta
                 source: 'ball_dont_lie_2024',
                 game_date: stat.game.date,
-                player_name: `${stat.player.first_name} ${stat.player.last_name}`,
-                team: stat.team?.abbreviation
+                game_status: stat.game?.status || null,
+                raw_stats: stat // Store full original data
               }
             };
             

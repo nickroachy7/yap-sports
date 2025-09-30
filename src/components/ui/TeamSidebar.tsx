@@ -8,7 +8,8 @@ import { motion } from 'framer-motion'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import { Trophy, Palette, LogOut, Plus } from 'lucide-react'
+import { Trophy, Palette, LogOut, Plus, MoreVertical, Trash2 } from 'lucide-react'
+import { createSupabaseBrowserClient } from '@/lib/supabaseClient'
 
 type UserTeam = {
   id: string
@@ -20,9 +21,12 @@ type UserTeam = {
 export function TeamSidebar() {
   const router = useRouter()
   const pathname = usePathname()
-  const { user, userTeams, loading, initialized, signOut: authSignOut } = useAuth()
+  const { user, userTeams, loading, initialized, signOut: authSignOut, refreshTeams } = useAuth()
   
   const [currentTeam, setCurrentTeam] = useState<UserTeam | null>(null)
+  const [openMenuTeamId, setOpenMenuTeamId] = useState<string | null>(null)
+  const [deleteConfirmTeamId, setDeleteConfirmTeamId] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   console.log('[TeamSidebar] Render:', { 
     hasUser: !!user, 
@@ -56,6 +60,70 @@ export function TeamSidebar() {
       router.push('/')
     }
   }
+
+  // Handle team deletion
+  const handleDeleteTeam = async (teamId: string, teamName: string) => {
+    setIsDeleting(true)
+    try {
+      // Get the supabase client and session
+      const supabase = createSupabaseBrowserClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        alert('Not authenticated')
+        setIsDeleting(false)
+        return
+      }
+
+      const response = await fetch('/api/teams/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ teamId })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        alert(data.error || 'Failed to delete team')
+        setIsDeleting(false)
+        return
+      }
+
+      // Close dialogs
+      setDeleteConfirmTeamId(null)
+      setOpenMenuTeamId(null)
+
+      // Refresh teams
+      await refreshTeams()
+
+      // If we're currently viewing the deleted team, redirect to dashboard
+      if (currentTeam?.id === teamId) {
+        router.push('/dashboard')
+      }
+
+      console.log('Team deleted successfully:', data)
+    } catch (error) {
+      console.error('Failed to delete team:', error)
+      alert('An error occurred while deleting the team')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setOpenMenuTeamId(null)
+    }
+    
+    if (openMenuTeamId) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [openMenuTeamId])
 
   // Show loading state while initializing
   if (loading && !initialized) {
@@ -168,29 +236,66 @@ export function TeamSidebar() {
             <div className="text-gray-400 text-sm p-3">Loading teams...</div>
           ) : userTeams.length > 0 ? (
             userTeams.map((team) => (
-              <Link key={team.id} href={`/dashboard/${team.id}`}>
+              <div key={team.id} className="relative">
                 <motion.div
                   whileHover={{ x: 2 }}
                   className={cn(
-                    "flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-colors",
+                    "flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-colors relative",
                     currentTeam?.id === team.id 
                       ? "bg-green-600 text-white" 
                       : "hover:bg-gray-700 text-gray-300"
                   )}
                 >
-                  <div className={cn(
-                    "w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold",
-                    currentTeam?.id === team.id 
-                      ? "bg-green-500 text-white" 
-                      : "bg-gray-600 text-gray-200"
-                  )}>
-                    {team.name.charAt(0).toUpperCase()}
-                  </div>
-                                  <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{team.name}</div>
-                </div>
+                  <Link href={`/dashboard/${team.id}`} className="flex items-center space-x-3 flex-1 min-w-0">
+                    <div className={cn(
+                      "w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold",
+                      currentTeam?.id === team.id 
+                        ? "bg-green-500 text-white" 
+                        : "bg-gray-600 text-gray-200"
+                    )}>
+                      {team.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{team.name}</div>
+                    </div>
+                  </Link>
+                  
+                  {/* Three dots menu */}
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setOpenMenuTeamId(openMenuTeamId === team.id ? null : team.id)
+                    }}
+                    className={cn(
+                      "p-1 rounded hover:bg-gray-600/50 transition-colors",
+                      currentTeam?.id === team.id ? "hover:bg-green-700" : ""
+                    )}
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
                 </motion.div>
-              </Link>
+
+                {/* Dropdown menu */}
+                {openMenuTeamId === team.id && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute right-0 top-full mt-1 z-50 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg overflow-hidden"
+                  >
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDeleteConfirmTeamId(team.id)
+                        setOpenMenuTeamId(null)
+                      }}
+                      className="w-full flex items-center space-x-3 px-4 py-3 text-left text-red-400 hover:bg-gray-700 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete Team</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             ))
           ) : (
             <button
@@ -266,6 +371,48 @@ export function TeamSidebar() {
           Sign Out
         </Button>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmTeamId && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50"
+          onClick={() => !isDeleting && setDeleteConfirmTeamId(null)}
+        >
+          <div
+            className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-semibold text-white mb-4">Delete Team?</h3>
+            <p className="text-gray-300 mb-6">
+              Are you sure you want to delete <strong>{userTeams.find(t => t.id === deleteConfirmTeamId)?.name}</strong>?
+              This action cannot be undone and will delete all associated data including cards, lineups, and tokens.
+            </p>
+            <div className="flex space-x-3">
+              <Button
+                onClick={() => setDeleteConfirmTeamId(null)}
+                variant="ghost"
+                className="flex-1"
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  const team = userTeams.find(t => t.id === deleteConfirmTeamId)
+                  if (team) {
+                    handleDeleteTeam(team.id, team.name)
+                  }
+                }}
+                variant="primary"
+                className="flex-1 bg-red-600 hover:bg-red-700"
+                disabled={isDeleting}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

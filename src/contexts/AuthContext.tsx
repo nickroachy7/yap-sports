@@ -31,30 +31,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [initialized, setInitialized] = useState(false)
   const [supabase] = useState(() => createSupabaseBrowserClient())
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
 
-  // Load user teams with proper error handling
+  // Debug: Log all state changes
+  useEffect(() => {
+    console.log('[AuthContext] STATE CHANGE:', {
+      hasUser: !!user,
+      userId: user?.id,
+      hasSession: !!session,
+      loading,
+      initialized,
+      teamsCount: userTeams.length,
+      timestamp: new Date().toISOString()
+    })
+  }, [user, session, loading, initialized, userTeams])
+
+  // Load user teams with proper error handling and timeout
   const loadUserTeams = useCallback(async (userId: string) => {
     console.log('[AuthContext] Loading teams for user:', userId)
     
     try {
-      const { data: teams, error } = await supabase
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Teams query timeout after 10s')), 10000)
+      })
+      
+      const queryPromise = supabase
         .from('user_teams')
         .select('*')
         .eq('user_id', userId)
         .eq('active', true)
         .order('created_at', { ascending: true })
+      
+      const { data: teams, error } = await Promise.race([
+        queryPromise,
+        timeoutPromise
+      ]) as any
 
       if (error) {
         console.error('[AuthContext] Error loading teams:', error)
+        console.error('[AuthContext] Error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        })
         setUserTeams([])
         return
       }
 
-      console.log('[AuthContext] Teams loaded successfully:', teams?.length || 0)
+      console.log('[AuthContext] Teams loaded successfully:', teams?.length || 0, teams)
       setUserTeams(teams || [])
+      console.log('[AuthContext] Teams state updated')
     } catch (error) {
       console.error('[AuthContext] Exception loading teams:', error)
+      console.error('[AuthContext] Error type:', error instanceof Error ? error.message : 'Unknown error')
       setUserTeams([])
+      // Don't let this block initialization
     }
   }, [supabase])
 
@@ -74,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     async function initializeAuth() {
       try {
+        console.log('[AuthContext] Starting initialization - getting session...')
         // Get initial session
         const { data: { session: initialSession }, error } = await supabase.auth.getSession()
         
@@ -82,11 +116,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (isMounted) {
             setLoading(false)
             setInitialized(true)
+            setIsInitialLoad(false)
           }
           return
         }
 
-        console.log('[AuthContext] Initial session found:', !!initialSession)
+        console.log('[AuthContext] Initial session found:', !!initialSession, 'User ID:', initialSession?.user?.id)
         
         if (!isMounted) return
 
@@ -94,18 +129,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(initialSession?.user ?? null)
         
         if (initialSession?.user?.id) {
+          console.log('[AuthContext] Loading teams for user:', initialSession.user.id)
           await loadUserTeams(initialSession.user.id)
         }
         
         if (isMounted) {
+          console.log('[AuthContext] Initialization complete - setting loading to false')
           setLoading(false)
           setInitialized(true)
+          setIsInitialLoad(false)
         }
       } catch (error) {
         console.error('[AuthContext] Initialize error:', error)
         if (isMounted) {
           setLoading(false)
           setInitialized(true)
+          setIsInitialLoad(false)
         }
       }
     }
@@ -130,25 +169,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false)
         } 
         else if (event === 'SIGNED_IN') {
-          console.log('[AuthContext] User signed in')
+          console.log('[AuthContext] User signed in - isInitialLoad:', isInitialLoad)
+          // Skip if this is the initial load - already handled by initializeAuth
+          if (isInitialLoad) {
+            console.log('[AuthContext] Skipping SIGNED_IN during initial load')
+            return
+          }
+          // Only handle actual user sign-in events after initial load
           if (newSession?.user?.id) {
+            console.log('[AuthContext] Loading teams for newly signed in user')
             setLoading(true)
             await loadUserTeams(newSession.user.id)
             setLoading(false)
           }
         }
         else if (event === 'TOKEN_REFRESHED') {
-          console.log('[AuthContext] Token refreshed')
-          // Don't reload teams on token refresh if we already have them
-          if (newSession?.user?.id && userTeams.length === 0) {
-            await loadUserTeams(newSession.user.id)
-          }
+          console.log('[AuthContext] Token refreshed - maintaining current state')
+          // Token refresh happens frequently (page nav, etc.)
+          // Don't reload teams or change loading state - just update session
+          // Teams are already loaded from initial auth
         }
         else if (event === 'USER_UPDATED') {
           console.log('[AuthContext] User updated')
           if (newSession?.user?.id) {
+            // Don't set loading true here - just refresh teams quietly
             await loadUserTeams(newSession.user.id)
           }
+        }
+        else if (event === 'INITIAL_SESSION') {
+          console.log('[AuthContext] Initial session event from auth listener - skipping (handled by initializeAuth)')
+          // Skip this event - we already handled initial session in initializeAuth()
+          // This prevents duplicate team loading and race conditions
         }
       }
     )

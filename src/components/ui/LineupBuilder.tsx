@@ -66,6 +66,12 @@ export interface LineupBuilderProps {
   hideInstructions?: boolean
   hideProjectedPoints?: boolean
   hideInternalHeader?: boolean
+  disableSticky?: boolean
+  // Controlled state props for sharing state between multiple instances
+  selectedSlot?: string | null
+  onSelectedSlotChange?: (slotId: string | null) => void
+  slotFilter?: string | null
+  onSlotFilterChange?: (slotId: string | null) => void
 }
 
 // Position slot configurations (without bench)
@@ -400,15 +406,28 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
   title = "Lineup Builder",
   hideInstructions = false,
   hideProjectedPoints = false,
-  hideInternalHeader = false
+  hideInternalHeader = false,
+  disableSticky = false,
+  // Controlled state props
+  selectedSlot: controlledSelectedSlot,
+  onSelectedSlotChange,
+  slotFilter: controlledSlotFilter,
+  onSlotFilterChange
 }) => {
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
+  // Use controlled state if provided, otherwise use internal state
+  const [internalSelectedSlot, setInternalSelectedSlot] = useState<string | null>(null)
+  const [internalSlotFilter, setInternalSlotFilter] = useState<string | null>(null)
+  
+  const selectedSlot = controlledSelectedSlot !== undefined ? controlledSelectedSlot : internalSelectedSlot
+  const setSelectedSlot = onSelectedSlotChange || setInternalSelectedSlot
+  const slotFilter = controlledSlotFilter !== undefined ? controlledSlotFilter : internalSlotFilter
+  const setSlotFilter = onSlotFilterChange || setInternalSlotFilter
+  
   const [positionFilter, setPositionFilter] = useState<string>('ALL')
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
   const [isPlayerModalOpen, setIsPlayerModalOpen] = useState(false)
   const [selectedTokenSlot, setSelectedTokenSlot] = useState<string | null>(null)
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false)
-  const [slotFilter, setSlotFilter] = useState<string | null>(null) // For filtering by slot position requirements
 
   // Memoized lineup slots with position configuration
   const currentLineup = useMemo(() => {
@@ -503,17 +522,21 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
       if (slot && canPlaceCardInSlot(card, slot)) {
         onSlotChange(selectedSlot, card)
         setSelectedSlot(null)
+        setSlotFilter(null)
+        setPositionFilter('ALL')
       }
     }
-  }, [selectedSlot, currentLineup, onSlotChange])
+  }, [selectedSlot, currentLineup, onSlotChange, setSelectedSlot, setSlotFilter])
 
   // Optimized slot click handler
   const handleSlotClick = useCallback((slotId: string) => {
     if (selectedSlot === slotId) {
+      // Clicking same slot again deselects it
       setSelectedSlot(null)
       setPositionFilter('ALL')
       setSlotFilter(null)
     } else {
+      // Selecting a new slot
       setSelectedSlot(slotId)
       const slot = currentLineup.find(s => s.slot === slotId)
       if (slot) {
@@ -522,7 +545,7 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
         setSlotFilter(slotId)
       }
     }
-  }, [selectedSlot, currentLineup])
+  }, [selectedSlot, currentLineup, setSelectedSlot, setSlotFilter])
 
   // Optimized remove handler
   const handleRemoveCard = useCallback((slotId: string) => {
@@ -593,14 +616,19 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
   // Handle collection item click
   const handleCollectionItemClick = useCallback((itemId: string, type: 'player' | 'token') => {
     if (type === 'player' && selectedSlot) {
+      // Slot is selected, add player to lineup
       const card = availableCards.find(c => c.id === itemId)
-      if (card) {
+      const slot = currentLineup.find(s => s.slot === selectedSlot)
+      
+      if (card && slot && canPlaceCardInSlot(card, slot)) {
         onSlotChange(selectedSlot, card)
+        // Clear selection after adding
         setSelectedSlot(null)
         setSlotFilter(null)
+        setPositionFilter('ALL')
       }
     } else if (type === 'player') {
-      // Open player modal if no slot selected
+      // No slot selected, open player modal
       const card = availableCards.find(c => c.id === itemId)
       if (card) {
         setSelectedPlayerId(card.player.id)
@@ -618,7 +646,7 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
         console.log('Token clicked:', token.token_type.name, '- Select a lineup slot first to apply this token')
       }
     }
-  }, [selectedSlot, availableCards, availableTokens, onSlotChange, onPlayerClick])
+  }, [selectedSlot, availableCards, availableTokens, currentLineup, onSlotChange, onPlayerClick, setSelectedSlot, setSlotFilter])
 
   const positions = ['ALL', 'QB', 'RB', 'WR', 'TE']
 
@@ -638,7 +666,14 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
 
         {/* Lineup Grid - Sticky Section with Header */}
         {showLineupGrid && (
-        <div className="sticky top-0 z-40" style={{backgroundColor: 'var(--color-obsidian)'}}>
+        <div 
+          className={cn(disableSticky ? '' : 'sticky z-40 border-b')} 
+          style={{
+            top: disableSticky ? 'auto' : '130px',
+            backgroundColor: disableSticky ? 'transparent' : 'var(--color-obsidian)', 
+            borderColor: disableSticky ? 'transparent' : 'var(--color-steel)'
+          }}
+        >
           <Card className={cn(compact ? 'p-4' : 'p-6', 'hover:!transform-none hover:!shadow-none')} interactive={false}>
             {/* Consolidated Header with Projected Points */}
             {!compact && (
@@ -719,9 +754,9 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
 
         {/* Available Cards - hide in compact mode by default */}
         {showAvailableCards && (
-          <Card className={cn(compact ? 'p-4' : 'p-6')}>
+          <Card className={cn(compact ? 'p-0' : 'p-6', 'mt-0')}>
             {selectedSlot && (
-              <div className="mb-4 p-3 bg-green-900/20 border border-green-500 rounded-lg flex items-center justify-between">
+              <div className="mb-4 mx-6 mt-6 p-3 bg-green-900/20 border border-green-500 rounded-lg flex items-center justify-between">
                 <div className="text-green-300 text-sm font-medium">
                   Click a player to add to: {currentLineup.find(s => s.slot === selectedSlot)?.label}
                 </div>
@@ -740,7 +775,7 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
             )}
 
             {getCollectionItems().length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 px-6 text-gray-500">
                 <div className="text-4xl mb-4">🏈</div>
                 <div className="text-lg font-medium">
                   {slotFilter ? 'No eligible items' : 'No available items'}
@@ -757,9 +792,6 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
                 {/* Players Section */}
                 {getCollectionItems().some(item => item.type === 'player') && (
                   <div>
-                    <h4 className="text-lg font-bold text-white mb-3">
-                      Available Players ({getCollectionItems().filter(item => item.type === 'player').length})
-                    </h4>
                     <CollectionListView 
                       items={getCollectionItems().filter(item => item.type === 'player')}
                       onItemClick={handleCollectionItemClick}

@@ -29,7 +29,7 @@ export default function TeamDashboard() {
   const params = useParams()
   const router = useRouter()
   const supabase = useMemo(() => createSupabaseBrowserClient(), [])
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, initialized } = useAuth()
   
   const [currentTeam, setCurrentTeam] = useState<UserTeam | null>(null)
   const [activeTab, setActiveTab] = useState<TabType>('lineup')
@@ -47,6 +47,10 @@ export default function TeamDashboard() {
   const [userPacks, setUserPacks] = useState<any[]>([])
   const [packLoading, setPackLoading] = useState(false)
   
+  // Shared lineup state - for syncing between multiple LineupBuilder instances
+  const [lineupSelectedSlot, setLineupSelectedSlot] = useState<string | null>(null)
+  const [lineupSlotFilter, setLineupSlotFilter] = useState<string | null>(null)
+  
   // Collection filters
   const [collectionSearchTerm, setCollectionSearchTerm] = useState('')
   const [collectionTypeFilter, setCollectionTypeFilter] = useState<'all' | 'player' | 'token'>('all')
@@ -61,15 +65,25 @@ export default function TeamDashboard() {
     let isMounted = true
     
     async function loadTeamData() {
-      if (!user || authLoading) {
-        console.log('[TeamDashboard] Waiting for auth:', { hasUser: !!user, authLoading })
+      // Wait for auth to be fully initialized
+      if (!initialized) {
+        console.log('[TeamDashboard] Waiting for auth to initialize...')
+        return
+      }
+
+      // Check if user is authenticated
+      if (!user) {
+        console.log('[TeamDashboard] No user found after auth initialized')
+        if (isMounted) {
+          setLoading(false)
+        }
         return
       }
       
       if (!isMounted) return
       
       try {
-        console.log('[TeamDashboard] User authenticated, loading team data for:', user.id, 'teamId:', teamId)
+        console.log('[TeamDashboard] Auth initialized with user, loading team data for:', user.id, 'teamId:', teamId)
         
         // Reset state on team change
         setLoading(true)
@@ -91,7 +105,7 @@ export default function TeamDashboard() {
     return () => {
       isMounted = false
     }
-  }, [user, authLoading, teamId])
+  }, [initialized, user, teamId]) // Changed: use initialized instead of authLoading
 
   async function loadUserData(uid: string) {
     try {
@@ -582,17 +596,15 @@ export default function TeamDashboard() {
       // Update team coins
       setCurrentTeam(prev => prev ? { ...prev, coins: result.remainingCoins } : null)
       
-      // Add the new pack to user packs
-      setUserPacks(prev => [...prev, {
-        id: result.userPackId,
-        pack: result.pack,
-        status: 'unopened'
-      }])
+      // Show success message with card details
+      const cardsList = result.cards?.map((card: any) => 
+        `${card.player.first_name} ${card.player.last_name} (${card.rarity})`
+      ).join(', ') || ''
       
-      setMessage(`✅ Successfully purchased ${result.pack.name}!`)
+      setMessage(`✅ Successfully purchased ${result.pack.name}! Received ${result.cards?.length || 0} cards: ${cardsList}`)
       
-      // Reload user packs to get the latest data
-      await loadUserPacks()
+      // Reload user cards to show the new cards in collection
+      await loadData()
       
     } catch (error) {
       console.error('Pack purchase error:', error)
@@ -738,16 +750,16 @@ export default function TeamDashboard() {
     }
   }
 
-  console.log('[TeamDashboard] Render:', { loading, authLoading, hasUser: !!user, hasTeam: !!currentTeam, teamId })
+  console.log('[TeamDashboard] Render:', { loading, authLoading, initialized, hasUser: !!user, hasTeam: !!currentTeam, teamId })
   
   // Show loading while auth is initializing OR while team data is loading
-  if (authLoading || loading) {
+  if (!initialized || (initialized && loading)) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{backgroundColor: 'var(--color-obsidian)'}}>
         <div className="text-center">
           <div className="text-2xl font-bold text-white mb-2">Loading Dashboard...</div>
           <div className="text-base" style={{color: 'var(--color-text-secondary)'}}>
-            {authLoading ? 'Authenticating...' : 'Setting up your team'}
+            {!initialized ? 'Authenticating...' : 'Setting up your team'}
           </div>
         </div>
       </div>
@@ -756,7 +768,7 @@ export default function TeamDashboard() {
   
   // Redirect if not authenticated
   if (!user) {
-    console.log('[TeamDashboard] No user after auth loading, redirecting...')
+    console.log('[TeamDashboard] No user after auth initialized, redirecting...')
     router.push('/auth')
     return null
   }
@@ -780,7 +792,7 @@ export default function TeamDashboard() {
     return (
     <StandardLayout>
       {/* Compact Command Center Header - Full Width */}
-      <div className="border-b" style={{borderColor: 'var(--color-steel)'}}>
+      <div className="sticky top-0 z-50 border-b" style={{backgroundColor: 'var(--color-obsidian)', borderColor: 'var(--color-steel)'}}>
         {/* Top Info Bar - Minimal & Clean */}
         <div className="flex items-center justify-between px-6 py-3">
           <div className="flex items-center space-x-4">
@@ -943,13 +955,10 @@ export default function TeamDashboard() {
               </Button>
           </div>
         )}
-      </div>
-      
-      {/* Lineup Tab - Starting Lineup is full-width, Available Players in ContentContainer */}
-      {activeTab === 'lineup' && currentWeek && (
-        <>
-          {/* Full-width Starting Lineup - Sticky with border */}
-          <div className="sticky top-0 z-30 border-b" style={{backgroundColor: 'var(--color-obsidian)', borderColor: 'var(--color-steel)'}}>
+
+        {/* Lineup Grid - Part of Sticky Header (only show on Lineup tab) */}
+        {activeTab === 'lineup' && currentWeek && (
+          <div className="border-t" style={{borderColor: 'var(--color-steel)'}}>
             <LineupBuilder
               availableCards={userCards}
               lineupSlots={lineupSlots}
@@ -960,12 +969,23 @@ export default function TeamDashboard() {
               loading={lineupLoading}
               title={`Week ${currentWeek.week_number} Lineup`}
               showAvailableCards={false}
+              disableSticky={true}
+              selectedSlot={lineupSelectedSlot}
+              onSelectedSlotChange={setLineupSelectedSlot}
+              slotFilter={lineupSlotFilter}
+              onSlotFilterChange={setLineupSlotFilter}
             />
           </div>
+        )}
+      </div>
+      
+      {/* Lineup Tab - Available Players in ContentContainer */}
+      {activeTab === 'lineup' && currentWeek && (
+        <>
           
           {/* Available Players in ContentContainer */}
           <ContentContainer>
-            <div className="py-6">
+            <div>
               <LineupBuilder
                 availableCards={userCards}
                 lineupSlots={lineupSlots}
@@ -979,6 +999,10 @@ export default function TeamDashboard() {
                 showLineupGrid={false}
                 showSubmitButton={false}
                 compact={true}
+                selectedSlot={lineupSelectedSlot}
+                onSelectedSlotChange={setLineupSelectedSlot}
+                slotFilter={lineupSlotFilter}
+                onSlotFilterChange={setLineupSlotFilter}
               />
             </div>
           </ContentContainer>
@@ -988,19 +1012,12 @@ export default function TeamDashboard() {
       {/* Other Tabs in ContentContainer */}
       {activeTab !== 'lineup' && (
         <ContentContainer>
-          <div className="py-6">
+          <div>
 
                 {activeTab === 'collection' && (
-          <Card className="py-6">
-            <div className="flex items-center justify-between mb-6 px-6">
-              <h2 className="text-xl font-bold text-white">All Items</h2>
-              <div className="text-sm text-gray-400">
-                Showing {getFilteredCollectionItems().length} of {userCards.length + availableTokens.length} items
-              </div>
-            </div>
-
+          <Card className="p-0">
             {userCards.length === 0 && availableTokens.length === 0 ? (
-              <div className="text-center py-6">
+              <div className="text-center py-6 px-6">
                 <div className="text-base font-bold text-white mb-2">No items in collection</div>
                 <div className="text-sm text-gray-400 mb-4">Purchase packs to get started</div>
                 <Button onClick={() => setActiveTab('store')} variant="primary">
