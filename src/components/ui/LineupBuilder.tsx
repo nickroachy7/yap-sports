@@ -61,6 +61,7 @@ export interface LineupBuilderProps {
   compact?: boolean
   showAvailableCards?: boolean
   showSubmitButton?: boolean
+  showLineupGrid?: boolean
   title?: string
   hideInstructions?: boolean
   hideProjectedPoints?: boolean
@@ -112,7 +113,7 @@ const LineupPlayerCard: React.FC<{
         'relative',
         isDragging && 'opacity-50 rotate-2'
       )}
-      whileHover={{ scale: 1.02, y: -2 }}
+      whileHover={{ scale: 1.05 }}
       transition={{ duration: 0.2 }}
     >
       <PlayerCard
@@ -136,47 +137,47 @@ const LineupPlayerCard: React.FC<{
         onSelect={onPlayerClick}
       />
       
-      {/* Projected Points Overlay */}
-      <div className="absolute top-2 right-2 bg-green-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg z-10">
-        {projected_points.toFixed(1)} FPTS
+      {/* Projected Points Overlay - Smaller for compact size */}
+      <div className="absolute top-1 right-1 bg-green-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow-lg z-10">
+        {projected_points.toFixed(1)}
       </div>
       
-      {/* Token Indicator */}
+      {/* Token Indicator - Smaller for compact size */}
       {appliedToken && (
         <div 
-          className="absolute bottom-2 right-2 bg-purple-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg z-10 cursor-pointer hover:bg-purple-700 transition-colors"
+          className="absolute bottom-1 right-1 bg-purple-600 text-white text-[9px] font-bold px-1 py-0.5 rounded-full shadow-lg z-10 cursor-pointer hover:bg-purple-700 transition-colors"
           onClick={(e) => {
             e.stopPropagation()
             onTokenClick?.()
           }}
           title={`${appliedToken.token_type.name} (${appliedToken.token_type.multiplier}x)`}
         >
-          🎯 {appliedToken.token_type.multiplier}x
+          {appliedToken.token_type.multiplier}x
         </div>
       )}
       
-      {/* Token Slot (when no token applied) */}
+      {/* Token Slot (when no token applied) - Smaller for compact size */}
       {!appliedToken && (
         <div 
-          className="absolute bottom-2 right-2 bg-gray-600 hover:bg-gray-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg z-10 cursor-pointer transition-colors"
+          className="absolute bottom-1 right-1 bg-gray-600 hover:bg-gray-500 text-white text-[9px] font-bold px-1 py-0.5 rounded-full shadow-lg z-10 cursor-pointer transition-colors"
           onClick={(e) => {
             e.stopPropagation()
             onTokenClick?.()
           }}
           title="Apply token"
         >
-          + 🎯
+          +🎯
         </div>
       )}
       
-      {/* Remove Button */}
+      {/* Remove Button - Smaller for compact size */}
       {onRemove && (
         <button
           onClick={(e) => {
             e.stopPropagation()
             onRemove()
           }}
-          className="absolute top-2 left-2 w-6 h-6 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center text-xs font-bold transition-colors z-10 shadow-lg"
+          className="absolute top-1 left-1 w-4 h-4 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center text-[10px] font-bold transition-colors z-10 shadow-lg"
         >
           ×
         </button>
@@ -185,7 +186,7 @@ const LineupPlayerCard: React.FC<{
   )
 }
 
-// Empty slot component - matches PlayerCard compact size exactly
+// Empty slot component - compact size for 7-across layout
 const EmptyLineupSlot: React.FC<{
   slot: LineupSlot
   isOver?: boolean
@@ -195,18 +196,18 @@ const EmptyLineupSlot: React.FC<{
     <motion.div
       onClick={onClick}
       className={cn(
-        'w-40 h-64 rounded-lg border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all relative overflow-hidden',
+        'w-28 h-40 rounded-lg border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all relative overflow-hidden',
         isOver 
-          ? 'border-green-400 bg-green-900/20 border-green-400' 
+          ? 'border-green-400 bg-green-900/20' 
           : 'border-gray-600 hover:border-gray-500'
       )}
       style={{backgroundColor: 'var(--color-gunmetal)'}}
-      whileHover={{ scale: 1.02, y: -2 }}
+      whileHover={{ scale: 1.05 }}
       transition={{ duration: 0.2 }}
     >
       {/* Position Badge */}
       <div className={cn(
-        'text-xs font-bold px-3 py-1.5 rounded-full mb-3',
+        'text-xs font-bold px-2 py-1 rounded-full mb-2',
         getPositionColor(slot.slot.includes('FLEX') ? 'FLEX' : slot.positions[0]),
         'text-white shadow-lg'
       )}>
@@ -214,17 +215,12 @@ const EmptyLineupSlot: React.FC<{
       </div>
       
       {/* Slot Label */}
-      <div className="text-sm font-medium text-gray-300 text-center px-3 mb-2">
+      <div className="text-xs font-medium text-gray-300 text-center px-2 mb-2 leading-tight">
         {slot.label}
       </div>
       
-      {/* Drop Hint */}
-      <div className="text-xs text-gray-500 text-center px-2 leading-tight">
-        Drag player here<br/>or click to select
-      </div>
-      
       {/* Plus Icon */}
-      <div className="absolute bottom-3 right-3 w-6 h-6 border border-gray-500 rounded-full flex items-center justify-center text-gray-500 text-xs">
+      <div className="absolute bottom-2 right-2 w-5 h-5 border border-gray-500 rounded-full flex items-center justify-center text-gray-500 text-xs">
         +
       </div>
       
@@ -307,7 +303,8 @@ const TokenSelectionModal: React.FC<{
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.9 }}
-        className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto"
+        className="rounded-lg p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto"
+        style={{backgroundColor: 'var(--color-midnight)'}}
       >
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-white">
@@ -399,6 +396,7 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
   compact = false,
   showAvailableCards = true,
   showSubmitButton = true,
+  showLineupGrid = true,
   title = "Lineup Builder",
   hideInstructions = false,
   hideProjectedPoints = false,
@@ -627,26 +625,8 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
       <div className={cn(compact ? 'space-y-4' : 'space-y-6', className)}>
-        {/* Header - Conditional based on compact mode */}
-        {!compact && (
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-white">{title}</h2>
-              {!hideInstructions && (
-                <p className="text-gray-400">Drag and drop or click to build your lineup</p>
-              )}
-            </div>
-            {!hideProjectedPoints && (
-              <div className="text-right">
-                <div className="text-sm text-gray-400">Total Projected Points</div>
-                <div className="text-2xl font-bold text-green-400">{totalProjectedPoints.toFixed(1)}</div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Compact header for dashboard integration */}
-        {compact && (
+        {compact && showLineupGrid && (
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-white">🏈 {title}</h3>
             <div className="text-right">
@@ -656,15 +636,28 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
           </div>
         )}
 
-        {/* Lineup Grid */}
-        <Card className={cn(compact ? 'p-4' : 'p-6')}>
-          {!compact && !hideInternalHeader && <h3 className="text-lg font-bold text-white mb-4">Starting Lineup</h3>}
-          <div className={cn(
-            'grid gap-4 justify-items-center',
-            compact 
-              ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7'
-              : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7'
-          )}>
+        {/* Lineup Grid - Sticky Section with Header */}
+        {showLineupGrid && (
+        <div className="sticky top-0 z-40" style={{backgroundColor: 'var(--color-obsidian)'}}>
+          <Card className={cn(compact ? 'p-4' : 'p-6', 'hover:!transform-none hover:!shadow-none')} interactive={false}>
+            {/* Consolidated Header with Projected Points */}
+            {!compact && (
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-white">Starting Lineup</h3>
+                {!hideProjectedPoints && (
+                  <div className="text-right">
+                    <div className="text-xs text-gray-400">Total Projected Points</div>
+                    <div className="text-xl font-bold text-green-400">{totalProjectedPoints.toFixed(1)}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className={cn(
+              'grid gap-3 justify-items-center',
+              compact 
+                ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7'
+                : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7'
+            )}>
             {currentLineup.map((slot) => (
               <Droppable key={slot.slot} droppableId={`lineup-slot-${slot.slot}`}>
                 {(provided, snapshot) => (
@@ -719,27 +712,19 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
                 )}
               </Droppable>
             ))}
-          </div>
-        </Card>
+            </div>
+          </Card>
+        </div>
+        )}
 
         {/* Available Cards - hide in compact mode by default */}
         {showAvailableCards && (
           <Card className={cn(compact ? 'p-4' : 'p-6')}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className={cn(
-                'font-bold text-white',
-                compact ? 'text-base' : 'text-lg'
-              )}>
-                Available Items ({getCollectionItems().length})
-                {slotFilter && (
-                  <span className="ml-2 text-sm font-normal text-green-400">
-                    - Filtered for {currentLineup.find(s => s.slot === slotFilter)?.label}
-                  </span>
-                )}
-              </h3>
-              
-              {/* Clear Filter Button */}
-              {slotFilter && (
+            {selectedSlot && (
+              <div className="mb-4 p-3 bg-green-900/20 border border-green-500 rounded-lg flex items-center justify-between">
+                <div className="text-green-300 text-sm font-medium">
+                  Click a player to add to: {currentLineup.find(s => s.slot === selectedSlot)?.label}
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -751,17 +736,6 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
                 >
                   Clear Filter
                 </Button>
-              )}
-            </div>
-
-            {selectedSlot && (
-              <div className="mb-4 p-3 bg-green-900/20 border border-green-500 rounded-lg">
-                <div className="text-green-300 text-sm font-medium">
-                  🎯 Click a player to add to: {currentLineup.find(s => s.slot === selectedSlot)?.label}
-                </div>
-                <div className="text-green-200 text-xs mt-1">
-                  Showing eligible players for this position + all available tokens
-                </div>
               </div>
             )}
 

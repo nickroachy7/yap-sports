@@ -60,6 +60,7 @@ export default function PlayersPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isPopulating, setIsPopulating] = useState(false)
   const [filters, setFilters] = useState<FilterOptions>({
     position: 'all',
     team: 'all',
@@ -77,30 +78,97 @@ export default function PlayersPage() {
   ]
 
   useEffect(() => {
-    loadPlayers()
+    let isMounted = true
+    let loadingTimeout: NodeJS.Timeout
+    
+    async function initializePlayers() {
+      if (!isMounted) return
+      
+      try {
+        await loadPlayers()
+      } catch (error) {
+        console.error('Players initialization error:', error)
+        if (isMounted) {
+          setLoading(false)
+          setError('Failed to load players')
+        }
+      }
+    }
+    
+    initializePlayers()
+    
+    return () => {
+      isMounted = false
+      if (loadingTimeout) {
+        clearTimeout(loadingTimeout)
+      }
+    }
   }, [])
 
   useEffect(() => {
     applyFilters()
   }, [players, filters])
 
+  // Listen for auth state changes to handle delayed session loading
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Players: Auth state change detected:', event, !!session)
+      
+      // Handle sign out - clear players data  
+      if (event === 'SIGNED_OUT') {
+        console.log('Players: User signed out, clearing data')
+        setPlayers([])
+        setFilteredPlayers([])
+        return
+      }
+      
+      // If we get a session after initial load and players haven't loaded yet
+      if (event === 'SIGNED_IN' && session && players.length === 0 && !loading) {
+        console.log('Players: User signed in, loading players...')
+        await loadPlayers()
+      }
+      
+      // If session changes while players are loaded, reload them
+      if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session && players.length === 0) {
+        console.log('Players: Session refreshed, reloading players...')
+        await loadPlayers()
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [players.length, loading])
+
   async function loadPlayers() {
     try {
       setLoading(true)
+      setError(null)
       console.log('🔍 Loading players...');
       
+      // Load all active players
       const { data: playersData, error } = await supabase
         .from('players')
         .select('*')
         .eq('active', true)
         .order('last_name', { ascending: true })
       
-      console.log('Players query result:', { count: playersData?.length, error });
+      console.log('Players query result:', { count: playersData?.length, error: error?.message });
       
-      if (error) throw error
+      if (error) {
+        throw new Error(`Failed to load players: ${error.message}`)
+      }
+      
+      // Check if we have any players
+      if (!playersData || playersData.length === 0) {
+        console.log('⚠️ No players found in database');
+        setPlayers([])
+        setError(null) // Don't treat empty database as an error
+        return
+      }
       
       // Convert to PlayerListItem format with mock stats
-      const playersList: PlayerListItem[] = (playersData || []).map((player, index) => ({
+      const playersList: PlayerListItem[] = playersData.map((player, index) => ({
         id: player.id,
         name: `${player.first_name} ${player.last_name}`,
         position: player.position,
@@ -127,6 +195,7 @@ export default function PlayersPage() {
       }))
       
       console.log('✅ Players loaded:', playersList.length);
+      console.log('Sample player data:', playersList.slice(0, 2));
       setPlayers(playersList)
     } catch (err) {
       console.error('❌ Error loading players:', err)
@@ -221,6 +290,56 @@ export default function PlayersPage() {
     })
   }
 
+  async function populatePlayersDatabase() {
+    try {
+      setIsPopulating(true)
+      console.log('🔄 Populating players database...')
+      
+      // First, sync teams (required for player-team relationships)
+      console.log('📋 Syncing teams first...')
+      const teamsResponse = await fetch('/api/admin/sync/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      if (!teamsResponse.ok) {
+        const teamsError = await teamsResponse.json()
+        throw new Error(`Failed to sync teams: ${teamsError.error || 'Unknown error'}`)
+      }
+      
+      console.log('✅ Teams synced successfully')
+      
+      // Then sync players
+      console.log('👥 Syncing players...')
+      const playersResponse = await fetch('/api/admin/sync/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          test_mode: true, 
+          per_page: 100, 
+          max_players: 500 
+        })
+      })
+      
+      const result = await playersResponse.json()
+      
+      if (!playersResponse.ok) {
+        throw new Error(result.error || 'Failed to populate players')
+      }
+      
+      console.log('✅ Players database populated:', result)
+      
+      // Reload players after successful population
+      await loadPlayers()
+      
+    } catch (err) {
+      console.error('❌ Error populating players:', err)
+      setError('Failed to populate players database: ' + (err as Error).message)
+    } finally {
+      setIsPopulating(false)
+    }
+  }
+
   // Transform PlayerListItem data to CollectionItem format (to match dashboard display)
   function transformToCollectionItems(playerList: PlayerListItem[]): CollectionItem[] {
     return playerList.map(player => ({
@@ -241,33 +360,27 @@ export default function PlayersPage() {
 
   return (
     <StandardLayout>
-      <PageHeader 
-        title="NFL Players" 
-        description="Research and analyze player performance"
-        rightContent={
-          <div className="text-right">
-            <div className="text-2xl font-black text-white">
-              {filteredPlayers.length}
-            </div>
-            <FilterStats 
-              total={players.length}
-              filtered={filteredPlayers.length}
-              label="players"
-              className="text-sm"
-            />
+      {/* Compact Header - Full Width */}
+      <div className="border-b" style={{borderColor: 'var(--color-steel)'}}>
+        {/* Top Info Bar */}
+        <div className="flex items-center justify-between px-6 py-3">
+          <div className="flex items-center space-x-4">
+            <h1 className="text-xl font-bold text-white">NFL Players</h1>
           </div>
-        }
-      />
+          <div className="text-right">
+            <div className="text-2xl font-bold text-white">{players.length}</div>
+            <div className="text-xs text-gray-400">
+              Showing {filteredPlayers.length} of {players.length}
+            </div>
+          </div>
+        </div>
 
-      <FilterContainer 
-        title="Filter & Search"
-        description="Find players by position, team, or search by name"
-      >
-        <FilterGrid columns={6}>
-          {/* Search */}
-          <div className="lg:col-span-2">
+        {/* Filter Bar - Compact Single Row */}
+        <div className="px-6 py-3 border-t flex items-center gap-3" style={{borderColor: 'var(--color-steel)'}}>
+          {/* Search - Full width first */}
+          <div className="flex-1">
             <SearchInput
-              placeholder="Search players..."
+              placeholder="Search by player name..."
               value={filters.searchTerm}
               onChange={(e) => setFilters({...filters, searchTerm: e.target.value})}
               onClear={() => setFilters({...filters, searchTerm: ''})}
@@ -275,7 +388,7 @@ export default function PlayersPage() {
           </div>
 
           {/* Position Filter */}
-          <div>
+          <div className="w-48">
             <Select
               value={filters.position}
               onChange={(e) => setFilters({...filters, position: e.target.value})}
@@ -285,7 +398,7 @@ export default function PlayersPage() {
           </div>
 
           {/* Team Filter */}
-          <div>
+          <div className="w-48">
             <Select
               value={filters.team}
               onChange={(e) => setFilters({...filters, team: e.target.value})}
@@ -295,7 +408,7 @@ export default function PlayersPage() {
           </div>
 
           {/* Sort By */}
-          <div>
+          <div className="w-40">
             <Select
               value={filters.sortBy}
               onChange={(e) => setFilters({...filters, sortBy: e.target.value as any})}
@@ -309,97 +422,76 @@ export default function PlayersPage() {
             />
           </div>
 
-          {/* Actions */}
-          <div>
-            <QuickFilterActions>
-              <FilterToggle
-                active={filters.sortOrder === 'desc'}
-                onClick={() => setFilters({...filters, sortOrder: filters.sortOrder === 'asc' ? 'desc' : 'asc'})}
-              >
-                {filters.sortOrder === 'asc' ? '↑ A-Z' : '↓ Z-A'}
-              </FilterToggle>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={resetFilters}
-              >
-                Reset
-              </Button>
-            </QuickFilterActions>
+          {/* Order */}
+          <div className="w-32">
+            <Select
+              value={filters.sortOrder}
+              onChange={(e) => setFilters({...filters, sortOrder: e.target.value as 'asc' | 'desc'})}
+              options={[
+                { value: 'asc', label: filters.sortBy === 'name' ? 'A → Z' : 'Low → High' },
+                { value: 'desc', label: filters.sortBy === 'name' ? 'Z → A' : 'High → Low' }
+              ]}
+            />
           </div>
-        </FilterGrid>
-      </FilterContainer>
+
+          {/* Reset Button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={resetFilters}
+          >
+            Reset Filters
+          </Button>
+        </div>
+      </div>
 
       {/* Main Content */}
       <ContentContainer>
         <div className="py-6">
         
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <Card className="p-4 text-center">
-            <div className="text-xl font-black text-white">
-              {players.filter(p => p.position === 'QB').length}
-            </div>
-            <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
-              Quarterbacks
-            </div>
-          </Card>
-          <Card className="p-4 text-center">
-            <div className="text-xl font-black text-white">
-              {players.filter(p => p.position === 'RB').length}
-            </div>
-            <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
-              Running Backs
-            </div>
-          </Card>
-          <Card className="p-4 text-center">
-            <div className="text-xl font-black text-white">
-              {players.filter(p => p.position === 'WR').length}
-            </div>
-            <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
-              Wide Receivers
-            </div>
-          </Card>
-          <Card className="p-4 text-center">
-            <div className="text-xl font-black text-white">
-              {players.filter(p => p.position === 'TE').length}
-            </div>
-            <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
-              Tight Ends
-            </div>
-          </Card>
-        </div>
-
         {/* Players List */}
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-white">
-              {filters.position !== 'all' ? `${filters.position}s` : 'All Players'}
-              {filters.team !== 'all' && ` - ${filters.team}`}
-            </h2>
-            <div className="flex items-center gap-4">
-              <span className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
-                Showing {filteredPlayers.length} of {players.length} players
-              </span>
+        <Card className="py-6">
+          <div className="flex items-center justify-between mb-6 px-6">
+            <h2 className="text-xl font-bold text-white">All Players</h2>
+            <div className="text-sm text-gray-400">
+              Showing {filteredPlayers.length} of {players.length} players
             </div>
           </div>
 
           {loading ? (
             <div className="space-y-4">
+              <div className="text-center py-4">
+                <div className="text-lg font-semibold text-white mb-2">Loading Players...</div>
+                <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
+                  Fetching player data from the database
+                </div>
+              </div>
               {[...Array(10)].map((_, i) => (
                 <LoadingSkeleton key={i} />
               ))}
             </div>
           ) : error ? (
-            <div className="text-center py-12">
-              <div className="text-4xl mb-4">❌</div>
-              <h3 className="text-xl font-bold text-white mb-2">Failed to Load Players</h3>
-              <p style={{color: 'var(--color-text-secondary)'}} className="mb-4">
-                {error}
-              </p>
-              <Button variant="primary" onClick={() => { setError(null); loadPlayers(); }}>
-                Try Again
-              </Button>
+            <div className="text-center py-8">
+              <div className="text-lg font-bold text-white mb-2">Failed to load players</div>
+              <p className="text-sm text-gray-400 mb-4">{error}</p>
+              <div className="space-y-3">
+                <Button variant="primary" onClick={() => { setError(null); loadPlayers(); }}>
+                  Try Again
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  onClick={() => {
+                    // Clear cache and reload
+                    if (typeof window !== 'undefined') {
+                      window.localStorage.clear()
+                      window.sessionStorage.clear()
+                      window.location.reload()
+                    }
+                  }}
+                >
+                  Clear Cache & Reload
+                </Button>
+              </div>
             </div>
           ) : filteredPlayers.length > 0 ? (
             <CollectionListView 
@@ -408,13 +500,35 @@ export default function PlayersPage() {
               showActions={true}
               filterType="players"
             />
-          ) : (
+          ) : players.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-4xl mb-4">🔍</div>
-              <h3 className="text-xl font-bold text-white mb-2">No Players Found</h3>
-              <p style={{color: 'var(--color-text-secondary)'}} className="mb-4">
-                Try adjusting your search filters or search terms.
+              <div className="text-4xl mb-4">🏈</div>
+              <h3 className="text-xl font-bold text-white mb-2">No Players in Database</h3>
+              <p style={{color: 'var(--color-text-secondary)'}} className="mb-6">
+                It looks like the players database is empty. You can populate it with NFL player data.
               </p>
+              <div className="space-y-3">
+                <Button 
+                  variant="primary" 
+                  onClick={populatePlayersDatabase}
+                  disabled={isPopulating}
+                >
+                  {isPopulating ? '🔄 Populating Players...' : '🚀 Populate Players Database'}
+                </Button>
+                <Button variant="ghost" onClick={() => { setError(null); loadPlayers(); }}>
+                  🔄 Refresh
+                </Button>
+              </div>
+              {isPopulating && (
+                <div className="mt-4 text-sm" style={{color: 'var(--color-text-secondary)'}}>
+                  This may take a few moments to fetch and populate NFL player data...
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <div className="text-lg font-bold text-white mb-2">No players found</div>
+              <p className="text-sm text-gray-400 mb-4">Try adjusting your filters</p>
               <Button variant="primary" onClick={resetFilters}>
                 Reset Filters
               </Button>

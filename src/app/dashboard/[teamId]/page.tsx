@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabaseClient'
-import { Card, Button, LineupBuilder, PlayerModal, CollectionListView, SectionHeader, StandardLayout, ContentContainer, Select } from '@/components/ui'
+import { useAuth } from '@/contexts/AuthContext'
+import { Card, Button, LineupBuilder, PlayerModal, CollectionListView, SectionHeader, StandardLayout, ContentContainer, Select, SearchInput } from '@/components/ui'
 import { UserCard, LineupSlot } from '@/components/ui/LineupBuilder'
 import type { CollectionItem } from '@/components/ui'
+import { Trophy, Coins, LayoutGrid, Store, BarChart3, Settings, Bell, Zap, Target, ClipboardList, Package, Gift } from 'lucide-react'
 
 type UserTeam = {
   id: string
@@ -21,16 +23,16 @@ type Week = {
   status: string
 }
 
-type TabType = 'overview' | 'lineup' | 'collection' | 'packs' | 'activity'
+type TabType = 'lineup' | 'collection' | 'store' | 'activity'
 
 export default function TeamDashboard() {
   const params = useParams()
   const router = useRouter()
-  const supabase = createSupabaseBrowserClient()
+  const supabase = useMemo(() => createSupabaseBrowserClient(), [])
+  const { user, loading: authLoading } = useAuth()
   
-  const [userId, setUserId] = useState<string | null>(null)
   const [currentTeam, setCurrentTeam] = useState<UserTeam | null>(null)
-  const [activeTab, setActiveTab] = useState<TabType>('overview')
+  const [activeTab, setActiveTab] = useState<TabType>('lineup')
   const [loading, setLoading] = useState(true)
   const [userCards, setUserCards] = useState<UserCard[]>([])
   const [availableTokens, setAvailableTokens] = useState<any[]>([])
@@ -40,36 +42,61 @@ export default function TeamDashboard() {
   const [lineupLoading, setLineupLoading] = useState(false)
   const [selectedCollectionPlayerId, setSelectedCollectionPlayerId] = useState<string | null>(null)
   const [isCollectionModalOpen, setIsCollectionModalOpen] = useState(false)
-  const [collectionFilter, setCollectionFilter] = useState<'all' | 'players' | 'tokens'>('all')
+  const [transactions, setTransactions] = useState<any[]>([])
   const [availablePacks, setAvailablePacks] = useState<any[]>([])
   const [userPacks, setUserPacks] = useState<any[]>([])
   const [packLoading, setPackLoading] = useState(false)
+  
+  // Collection filters
+  const [collectionSearchTerm, setCollectionSearchTerm] = useState('')
+  const [collectionTypeFilter, setCollectionTypeFilter] = useState<'all' | 'player' | 'token'>('all')
+  const [collectionPositionFilter, setCollectionPositionFilter] = useState('all')
+  const [collectionSortBy, setCollectionSortBy] = useState<'name' | 'fpts' | 'rarity'>('fpts')
+  const [collectionSortOrder, setCollectionSortOrder] = useState<'asc' | 'desc'>('desc')
 
   const teamId = params.teamId as string
 
-  // Load authentication and team data
+  // Load team data when user is authenticated
   useEffect(() => {
-    async function loadAuth() {
-      const { data: { session }, error } = await supabase.auth.getSession()
-      if (error) {
-        console.error('Auth error:', error)
-        router.push('/auth')
+    let isMounted = true
+    
+    async function loadTeamData() {
+      if (!user || authLoading) {
+        console.log('[TeamDashboard] Waiting for auth:', { hasUser: !!user, authLoading })
         return
       }
       
-      if (session?.user?.id) {
-        setUserId(session.user.id)
-        await loadUserData(session.user.id)
-      } else {
-        router.push('/auth')
+      if (!isMounted) return
+      
+      try {
+        console.log('[TeamDashboard] User authenticated, loading team data for:', user.id, 'teamId:', teamId)
+        
+        // Reset state on team change
+        setLoading(true)
+        setCurrentTeam(null)
+        setUserCards([])
+        setAvailableTokens([])
+        setLineupSlots([])
+        setUserPacks([])
+        
+        await loadUserData(user.id)
+      } catch (err) {
+        console.error('[TeamDashboard] Error loading team data:', err)
+        setLoading(false)
       }
     }
     
-    loadAuth()
-  }, [teamId, router, supabase.auth])
+    loadTeamData()
+    
+    return () => {
+      isMounted = false
+    }
+  }, [user, authLoading, teamId])
 
   async function loadUserData(uid: string) {
     try {
+      console.log('Loading user data for:', uid, 'teamId:', teamId)
+      
       // Load current team
       const { data: teams, error: teamsError } = await supabase
         .from('user_teams')
@@ -79,25 +106,35 @@ export default function TeamDashboard() {
         .eq('id', teamId)
         .single()
 
+      console.log('Team query result:', { teams, teamsError })
+
       if (teamsError || !teams) {
-        setMessage('Team not found or access denied')
+        console.error('Team not found:', teamsError)
+        setLoading(false)
         router.push('/dashboard')
         return
       }
       
+      console.log('Setting current team:', teams)
       setCurrentTeam(teams)
 
       // Load team's cards, tokens, lineup, and packs
-      await loadTeamCards(uid, teamId)
-      await loadTeamTokens(uid, teamId)
-      await loadTeamLineup(uid, teamId)
-      await loadAvailablePacks()
-      await loadUserPacks()
+      console.log('Loading team data...')
+      await Promise.all([
+        loadTeamCards(uid, teamId),
+        loadTeamTokens(uid, teamId),
+        loadTeamLineup(uid, teamId),
+        loadAvailablePacks(),
+        loadUserPacks()
+      ])
+      
+      console.log('All team data loaded successfully')
       
     } catch (error) {
       console.error('Error loading user data:', error)
       setMessage('Failed to load team data: ' + (error as Error).message)
     } finally {
+      console.log('Setting loading to false')
       setLoading(false)
     }
   }
@@ -445,6 +482,71 @@ export default function TeamDashboard() {
     return [...playerItems, ...tokenItems]
   }
 
+  // Get filtered collection items based on search and filters
+  const getFilteredCollectionItems = (): CollectionItem[] => {
+    let items = getCollectionItems()
+
+    // Type filter
+    if (collectionTypeFilter !== 'all') {
+      items = items.filter(item => item.type === collectionTypeFilter)
+    }
+
+    // Position filter (only for players)
+    if (collectionPositionFilter !== 'all') {
+      items = items.filter(item => 
+        item.type === 'token' || item.position === collectionPositionFilter
+      )
+    }
+
+    // Search filter
+    if (collectionSearchTerm) {
+      const searchLower = collectionSearchTerm.toLowerCase()
+      items = items.filter(item => {
+        if (item.type === 'player') {
+          return item.name.toLowerCase().includes(searchLower) ||
+                 item.position?.toLowerCase().includes(searchLower) ||
+                 item.team?.toLowerCase().includes(searchLower)
+        } else {
+          return item.name.toLowerCase().includes(searchLower) ||
+                 item.description?.toLowerCase().includes(searchLower)
+        }
+      })
+    }
+
+    // Sort
+    items.sort((a, b) => {
+      let aValue: any, bValue: any
+
+      switch (collectionSortBy) {
+        case 'name':
+          aValue = a.name
+          bValue = b.name
+          break
+        case 'fpts':
+          // Tokens don't have fpts, so put them at the end
+          aValue = a.type === 'player' ? (a.stats?.fpts || 0) : -1
+          bValue = b.type === 'player' ? (b.stats?.fpts || 0) : -1
+          break
+        case 'rarity':
+          const rarityOrder = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 }
+          aValue = a.type === 'player' && a.rarity ? rarityOrder[a.rarity] : 0
+          bValue = b.type === 'player' && b.rarity ? rarityOrder[b.rarity] : 0
+          break
+        default:
+          aValue = a.name
+          bValue = b.name
+      }
+
+      if (collectionSortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1
+      } else {
+        return aValue < bValue ? 1 : -1
+      }
+    })
+
+    return items
+  }
+
   // Handle pack purchase
   const handlePackPurchase = async (packId: string) => {
     if (!currentTeam || packLoading) return
@@ -532,9 +634,11 @@ export default function TeamDashboard() {
       setMessage(`🎉 Pack opened! Received ${result.contents.cards?.length || 0} cards and ${result.contents.tokens?.length || 0} tokens`)
       
       // Reload user data
-      await loadTeamCards(userId!, teamId)
-      await loadTeamTokens(userId!, teamId)
-      await loadUserPacks()
+      if (user?.id) {
+        await loadTeamCards(user.id, teamId)
+        await loadTeamTokens(user.id, teamId)
+        await loadUserPacks()
+      }
       
       return { success: true, contents: result.contents }
       
@@ -607,7 +711,7 @@ export default function TeamDashboard() {
 
   // Load user packs
   const loadUserPacks = async () => {
-    if (!userId || !teamId) return
+    if (!user?.id || !teamId) return
     
     try {
       const { data: packs, error } = await supabase
@@ -623,7 +727,7 @@ export default function TeamDashboard() {
             description
           )
         `)
-        .eq('user_id', userId)
+        .eq('user_id', user.id)
         .eq('team_id', teamId)
         .order('opened_at', { ascending: false, nullsFirst: true })
       
@@ -634,15 +738,27 @@ export default function TeamDashboard() {
     }
   }
 
-  if (loading || !userId) {
+  console.log('[TeamDashboard] Render:', { loading, authLoading, hasUser: !!user, hasTeam: !!currentTeam, teamId })
+  
+  // Show loading while auth is initializing OR while team data is loading
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{backgroundColor: 'var(--color-obsidian)'}}>
         <div className="text-center">
           <div className="text-2xl font-bold text-white mb-2">Loading Dashboard...</div>
-          <div className="text-base" style={{color: 'var(--color-text-secondary)'}}>Setting up your team</div>
+          <div className="text-base" style={{color: 'var(--color-text-secondary)'}}>
+            {authLoading ? 'Authenticating...' : 'Setting up your team'}
+          </div>
         </div>
       </div>
     )
+  }
+  
+  // Redirect if not authenticated
+  if (!user) {
+    console.log('[TeamDashboard] No user after auth loading, redirecting...')
+    router.push('/auth')
+    return null
   }
 
   if (!currentTeam) {
@@ -663,367 +779,247 @@ export default function TeamDashboard() {
 
     return (
     <StandardLayout>
-      <ContentContainer>
-        <div className="py-6">
-          {/* Header */}
-          <div className="mb-6">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h1 className="text-3xl font-black text-white mb-2">{currentTeam.name}</h1>
-              <p className="text-base" style={{color: 'var(--color-text-secondary)'}}>
-                Fantasy Team Dashboard
-              </p>
+      {/* Compact Command Center Header - Full Width */}
+      <div className="border-b" style={{borderColor: 'var(--color-steel)'}}>
+        {/* Top Info Bar - Minimal & Clean */}
+        <div className="flex items-center justify-between px-6 py-3">
+          <div className="flex items-center space-x-4">
+            <h1 className="text-xl font-bold text-white">{currentTeam.name}</h1>
+            <div className="flex items-center space-x-3 text-sm">
+              <span className="text-gray-500">·</span>
+              <span className="text-gray-400">
+                {currentWeek ? `Week ${currentWeek.week_number}` : 'Season'}
+              </span>
+              <span className="text-gray-500">·</span>
+              <span className="font-semibold text-green-400 flex items-center gap-1">
+                <Coins className="w-4 h-4" />
+                {currentTeam.coins.toLocaleString()}
+              </span>
             </div>
-            
-                         {/* Team Stats - Always Visible */}
-             <div className="grid grid-cols-4 gap-3">
-               <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">
-                 <div className="text-lg mb-1">📇</div>
-                 <div className="text-sm font-bold text-white">{userCards.length}</div>
-                 <div className="text-xs text-gray-400">Player Cards</div>
-               </div>
-               <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">
-                 <div className="text-lg mb-1">🎁</div>
-                 <div className="text-sm font-bold text-white">{userPacks.filter(p => p.status === 'unopened').length}</div>
-                 <div className="text-xs text-gray-400">Unopened Packs</div>
-               </div>
-               <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">
-                 <div className="text-lg mb-1">🏈</div>
-                 <div className="text-sm font-bold text-white">
-                   {lineupSlots.filter(slot => slot.user_card).length}/7
-                 </div>
-                 <div className="text-xs text-gray-400">Lineup Set</div>
-               </div>
-               <div className="bg-slate-800/50 rounded-lg p-3 text-center border border-slate-700/50">
-                 <div className="text-lg mb-1">💰</div>
-                 <div className="text-sm font-bold text-green-400">{currentTeam.coins.toLocaleString()}</div>
-                 <div className="text-xs text-gray-400">Team Balance</div>
-               </div>
-             </div>
           </div>
-
-          {/* Tab Navigation */}
-          <div className="flex space-x-1 bg-slate-800 p-1 rounded-lg">
-            {[
-              { id: 'overview', label: 'Overview', icon: '📊' },
-              { id: 'lineup', label: 'Lineup', icon: '🏈' },
-              { id: 'collection', label: 'Collection', icon: '📇' },
-              { id: 'packs', label: 'Packs', icon: '🎁' },
-              { id: 'activity', label: 'Activity', icon: '📋' }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as TabType)}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  activeTab === tab.id
-                    ? 'bg-green-600 text-white'
-                    : 'text-gray-300 hover:text-white hover:bg-gray-700'
-                }`}
-              >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
-              </button>
-            ))}
+          
+          {/* Action Icons - Minimal Style */}
+          <div className="flex items-center space-x-1">
+            <button 
+              className="p-2 text-gray-500 hover:text-white transition-colors"
+              title="Statistics"
+            >
+              <BarChart3 className="w-5 h-5" />
+            </button>
+            <button 
+              className="p-2 text-gray-500 hover:text-white transition-colors"
+              title="Settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+            <button 
+              className="p-2 text-gray-500 hover:text-white transition-colors relative"
+              title="Notifications"
+            >
+              <Bell className="w-5 h-5" />
+              {userPacks.filter(p => p.status === 'unopened').length > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+              )}
+            </button>
           </div>
         </div>
 
-        {/* Message */}
-        {message && (
-          <Card className="p-4 mb-6" style={{backgroundColor: 'var(--color-midnight)', borderColor: 'var(--color-steel)'}}>
-            <div className={`text-sm ${
-              message.includes('Error') || message.includes('Failed') 
-                ? 'text-red-400' 
-                : 'text-green-400'
-            }`}>
-              {message}
+        {/* Tab Navigation - Sleek Design */}
+        <div className="flex space-x-0 border-t px-6" style={{borderColor: 'var(--color-steel)'}}>
+              {[
+                { id: 'lineup', label: 'Lineup', Icon: Trophy, badge: null },
+                { id: 'collection', label: 'Collection', Icon: LayoutGrid, badge: userCards.length + availableTokens.length },
+                { id: 'store', label: 'Store', Icon: Store, badge: userPacks.filter(p => p.status === 'unopened').length || null },
+                { id: 'activity', label: 'Activity', Icon: ClipboardList, badge: null }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as TabType)}
+                  className={`relative px-6 py-3 text-sm font-semibold transition-all ${
+                    activeTab === tab.id
+                      ? 'text-green-400'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <tab.Icon className="w-4 h-4" />
+                    <span>{tab.label}</span>
+                    {tab.badge && (
+                      <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-700 text-gray-300">
+                        {tab.badge}
+                      </span>
+                    )}
+                  </div>
+                  {/* Active indicator - bottom border */}
+                  {activeTab === tab.id && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-400"></div>
+                  )}
+                </button>
+              ))}
+        </div>
+
+        {/* Collection Filters - Only show when Collection tab is active */}
+        {activeTab === 'collection' && (
+          <div className="px-6 py-3 border-t flex items-center gap-3" style={{borderColor: 'var(--color-steel)'}}>
+            {/* Search - Full width first */}
+              <div className="flex-1">
+                <SearchInput
+                  placeholder="Search by player name or token..."
+                  value={collectionSearchTerm}
+                  onChange={(e) => setCollectionSearchTerm(e.target.value)}
+                  onClear={() => setCollectionSearchTerm('')}
+                />
+              </div>
+
+              {/* Type Filter */}
+              <div className="w-48">
+                <Select
+                  value={collectionTypeFilter}
+                  onChange={(e) => setCollectionTypeFilter(e.target.value as 'all' | 'player' | 'token')}
+                  options={[
+                    { value: 'all', label: 'All Items' },
+                    { value: 'player', label: 'Players' },
+                    { value: 'token', label: 'Tokens' }
+                  ]}
+                  placeholder="All Items"
+                />
+              </div>
+
+              {/* Position Filter */}
+              <div className="w-48">
+                <Select
+                  value={collectionPositionFilter}
+                  onChange={(e) => setCollectionPositionFilter(e.target.value)}
+                  options={[
+                    { value: 'all', label: 'All Positions' },
+                    { value: 'QB', label: 'QB' },
+                    { value: 'RB', label: 'RB' },
+                    { value: 'WR', label: 'WR' },
+                    { value: 'TE', label: 'TE' }
+                  ]}
+                  placeholder="All Positions"
+                />
+              </div>
+
+              {/* Sort By */}
+              <div className="w-40">
+                <Select
+                  value={collectionSortBy}
+                  onChange={(e) => setCollectionSortBy(e.target.value as 'name' | 'fpts' | 'rarity')}
+                  options={[
+                    { value: 'name', label: 'Name' },
+                    { value: 'fpts', label: 'Fantasy Points' },
+                    { value: 'rarity', label: 'Rarity' }
+                  ]}
+                  placeholder="Sort By"
+                />
+              </div>
+
+              {/* Order */}
+              <div className="w-32">
+                <Select
+                  value={collectionSortOrder}
+                  onChange={(e) => setCollectionSortOrder(e.target.value as 'asc' | 'desc')}
+                  options={[
+                    { value: 'asc', label: collectionSortBy === 'name' ? 'A → Z' : 'Low → High' },
+                    { value: 'desc', label: collectionSortBy === 'name' ? 'Z → A' : 'High → Low' }
+                  ]}
+                />
+              </div>
+
+              {/* Reset Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setCollectionSearchTerm('')
+                  setCollectionTypeFilter('all')
+                  setCollectionPositionFilter('all')
+                  setCollectionSortBy('fpts')
+                  setCollectionSortOrder('desc')
+                }}
+              >
+                Reset Filters
+              </Button>
+          </div>
+        )}
+      </div>
+      
+      {/* Lineup Tab - Starting Lineup is full-width, Available Players in ContentContainer */}
+      {activeTab === 'lineup' && currentWeek && (
+        <>
+          {/* Full-width Starting Lineup - Sticky with border */}
+          <div className="sticky top-0 z-30 border-b" style={{backgroundColor: 'var(--color-obsidian)', borderColor: 'var(--color-steel)'}}>
+            <LineupBuilder
+              availableCards={userCards}
+              lineupSlots={lineupSlots}
+              availableTokens={availableTokens}
+              onSlotChange={handleLineupSlotChange}
+              onTokenApply={handleTokenApply}
+              onPlayerClick={handlePlayerClick}
+              loading={lineupLoading}
+              title={`Week ${currentWeek.week_number} Lineup`}
+              showAvailableCards={false}
+            />
+          </div>
+          
+          {/* Available Players in ContentContainer */}
+          <ContentContainer>
+            <div className="py-6">
+              <LineupBuilder
+                availableCards={userCards}
+                lineupSlots={lineupSlots}
+                availableTokens={availableTokens}
+                onSlotChange={handleLineupSlotChange}
+                onTokenApply={handleTokenApply}
+                onPlayerClick={handlePlayerClick}
+                loading={lineupLoading}
+                title={`Week ${currentWeek.week_number} Lineup`}
+                showAvailableCards={true}
+                showLineupGrid={false}
+                showSubmitButton={false}
+                compact={true}
+              />
             </div>
+          </ContentContainer>
+        </>
+      )}
+      
+      {/* Other Tabs in ContentContainer */}
+      {activeTab !== 'lineup' && (
+        <ContentContainer>
+          <div className="py-6">
+
+                {activeTab === 'collection' && (
+          <Card className="py-6">
+            <div className="flex items-center justify-between mb-6 px-6">
+              <h2 className="text-xl font-bold text-white">All Items</h2>
+              <div className="text-sm text-gray-400">
+                Showing {getFilteredCollectionItems().length} of {userCards.length + availableTokens.length} items
+              </div>
+            </div>
+
+            {userCards.length === 0 && availableTokens.length === 0 ? (
+              <div className="text-center py-6">
+                <div className="text-base font-bold text-white mb-2">No items in collection</div>
+                <div className="text-sm text-gray-400 mb-4">Purchase packs to get started</div>
+                <Button onClick={() => setActiveTab('store')} variant="primary">
+                  Go to Store
+                </Button>
+              </div>
+            ) : (
+              <CollectionListView 
+                items={getFilteredCollectionItems()}
+                onItemClick={handleCollectionItemClick}
+                onSellPlayer={handlePlayerSell}
+                showActions={true}
+                filterType={collectionTypeFilter === 'all' ? undefined : collectionTypeFilter === 'player' ? 'players' : 'tokens'}
+              />
+            )}
           </Card>
         )}
 
-                 {/* Tab Content */}
-         {activeTab === 'overview' && (
-           <div className="space-y-6">
-             <SectionHeader 
-               title="Team Overview"
-               description="Quick access to your lineup, collection, and pack store"
-               rightContent={
-                 <div className="text-right">
-                   <div className="text-2xl font-bold text-green-400">
-                     {lineupSlots.reduce((total, slot) => 
-                       total + (slot.user_card?.projected_points || 0), 0
-                     ).toFixed(1)}
-                   </div>
-                   <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
-                     Projected Points
-                   </div>
-                 </div>
-               }
-             />
-
-             {/* Quick Lineup Preview */}
-             {currentWeek && (
-               <Card className="p-6">
-                 <div className="flex items-center justify-between mb-2">
-                   <h3 className="text-xl font-bold text-white">Starting Lineup</h3>
-                   <Button onClick={() => setActiveTab('lineup')} variant="ghost" size="sm">
-                     Manage Lineup →
-                   </Button>
-                 </div>
-                 <LineupBuilder
-                   availableCards={userCards}
-                   lineupSlots={lineupSlots}
-                   availableTokens={availableTokens}
-                   onSlotChange={handleLineupSlotChange}
-                   onTokenApply={handleTokenApply}
-                   onPlayerClick={handlePlayerClick}
-                   loading={lineupLoading}
-                   showAvailableCards={false}
-                   showSubmitButton={false}
-                   title=""
-                   hideInstructions={true}
-                   hideProjectedPoints={true}
-                   hideInternalHeader={true}
-                 />
-               </Card>
-             )}
-
-             {/* Pack Purchase Actions */}
-             <Card className="p-6">
-               <div className="flex items-center justify-between mb-4">
-                 <h3 className="text-xl font-bold text-white">Quick Pack Purchase</h3>
-                 <Button onClick={() => setActiveTab('packs')} variant="ghost" size="sm">
-                   View Store →
-                 </Button>
-               </div>
-               
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                 <Card className="p-4 border border-gray-600">
-                   <div className="text-center">
-                     <div className="text-3xl mb-2">⚽</div>
-                     <div className="text-sm font-bold text-white">Basic Pack</div>
-                     <div className="text-xs text-gray-400 mb-3">3 Cards</div>
-                     <div className="text-lg font-bold text-green-400 mb-3">💰 50</div>
-                     <Button variant="primary" size="sm" className="w-full">
-                       Buy Now
-                     </Button>
-                   </div>
-                 </Card>
-                 
-                 <Card className="p-4 border border-purple-500">
-                   <div className="text-center">
-                     <div className="text-3xl mb-2">🏈</div>
-                     <div className="text-sm font-bold text-white">Premium Pack</div>
-                     <div className="text-xs text-gray-400 mb-3">5 Cards + Token</div>
-                     <div className="text-lg font-bold text-green-400 mb-3">💰 100</div>
-                     <Button variant="primary" size="sm" className="w-full">
-                       Buy Now
-                     </Button>
-                   </div>
-                 </Card>
-                 
-                 <Card className="p-4 border border-yellow-500">
-                   <div className="text-center">
-                     <div className="text-3xl mb-2">🏆</div>
-                     <div className="text-sm font-bold text-white">Elite Pack</div>
-                     <div className="text-xs text-gray-400 mb-3">7 Cards + 2 Tokens</div>
-                     <div className="text-lg font-bold text-green-400 mb-3">💰 200</div>
-                     <Button variant="primary" size="sm" className="w-full">
-                       Buy Now
-                     </Button>
-                   </div>
-                 </Card>
-               </div>
-             </Card>
-
-             {/* Collection Overview */}
-             <Card className="p-6">
-               <div className="flex items-center justify-between mb-4">
-                 <h3 className="text-xl font-bold text-white">Your Collection</h3>
-                 <Button onClick={() => setActiveTab('collection')} variant="ghost" size="sm">
-                   View All →
-                 </Button>
-               </div>
-               
-               {userCards.length === 0 && availableTokens.length === 0 ? (
-                 <div className="text-center py-8">
-                   <div className="text-4xl mb-4">📇</div>
-                   <div className="text-lg font-bold text-white mb-2">No Items Yet</div>
-                   <div className="text-gray-400 mb-4">Purchase packs to start building your collection</div>
-                 </div>
-               ) : (
-                 <div className="space-y-4">
-                   {/* Players Section */}
-                   {userCards.length > 0 && (
-                     <div>
-                       <h4 className="text-base font-bold text-white mb-2">
-                         Player Cards ({userCards.length})
-                       </h4>
-                       <CollectionListView 
-                         items={getCollectionItems().filter(item => item.type === 'player')}
-                         onItemClick={handleCollectionItemClick}
-                         showActions={true}
-                         filterType="players"
-                       />
-                     </div>
-                   )}
-
-                   {/* Tokens Section */}
-                   {availableTokens.length > 0 && (
-                     <div>
-                       <h4 className="text-base font-bold text-white mb-2">
-                         Tokens ({availableTokens.length})
-                       </h4>
-                       <CollectionListView 
-                         items={getCollectionItems().filter(item => item.type === 'token')}
-                         onItemClick={handleCollectionItemClick}
-                         showActions={true}
-                         filterType="tokens"
-                       />
-                     </div>
-                   )}
-                 </div>
-               )}
-             </Card>
-           </div>
-         )}
-
-                 {activeTab === 'lineup' && currentWeek && (
-           <div className="space-y-6">
-             <LineupBuilder
-               availableCards={userCards}
-               lineupSlots={lineupSlots}
-               availableTokens={availableTokens}
-               onSlotChange={handleLineupSlotChange}
-               onTokenApply={handleTokenApply}
-               onPlayerClick={handlePlayerClick}
-               loading={lineupLoading}
-               title={`Week ${currentWeek.week_number} Lineup`}
-             />
-           </div>
-         )}
-
-                 {activeTab === 'collection' && (
-           <div className="space-y-6">
-             {/* Tab Header */}
-             <div className="mb-6">
-               <div className="flex items-center justify-between">
-                 <div>
-                   <h2 className="text-2xl font-bold text-white">Your Collection</h2>
-                   <p className="text-lg" style={{color: 'var(--color-text-secondary)'}}>
-                     Manage your player cards and tokens
-                   </p>
-                 </div>
-                 <div className="text-right">
-                   <div className="text-2xl font-bold text-white">
-                     {collectionFilter === 'all' 
-                       ? userCards.length + availableTokens.length
-                       : collectionFilter === 'players' 
-                         ? userCards.length 
-                         : availableTokens.length
-                     }
-                   </div>
-                   <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
-                     {collectionFilter === 'all' 
-                       ? 'Total Items'
-                       : collectionFilter === 'players' 
-                         ? 'Player Cards' 
-                         : 'Tokens'
-                     }
-                   </div>
-                 </div>
-               </div>
-             </div>
-
-             {/* Collection Filters */}
-             <Card className="p-6">
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                 {/* Type Filter */}
-                 <div>
-                   <Select
-                     value={collectionFilter}
-                     onChange={(e) => setCollectionFilter(e.target.value as 'all' | 'players' | 'tokens')}
-                     options={[
-                       { value: 'all', label: `All Items (${userCards.length + availableTokens.length})` },
-                       { value: 'players', label: `Players Only (${userCards.length})` },
-                       { value: 'tokens', label: `Tokens Only (${availableTokens.length})` }
-                     ]}
-                     placeholder="Filter Collection"
-                   />
-                 </div>
-
-                 {/* Quick Stats */}
-                 <div className="md:col-span-2">
-                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                     <div className="text-center">
-                       <div className="text-lg font-bold text-white">{userCards.length}</div>
-                       <div className="text-xs" style={{color: 'var(--color-text-secondary)'}}>Player Cards</div>
-                     </div>
-                     <div className="text-center">
-                       <div className="text-lg font-bold text-white">{availableTokens.length}</div>
-                       <div className="text-xs" style={{color: 'var(--color-text-secondary)'}}>Tokens</div>
-                     </div>
-                     <div className="text-center">
-                       <div className="text-lg font-bold text-white">{availableTokens.filter(t => !t.used).length}</div>
-                       <div className="text-xs" style={{color: 'var(--color-text-secondary)'}}>Available</div>
-                     </div>
-                     <div className="text-center">
-                       <div className="text-lg font-bold text-white">{availableTokens.filter(t => t.used).length}</div>
-                       <div className="text-xs" style={{color: 'var(--color-text-secondary)'}}>In Use</div>
-                     </div>
-                   </div>
-                 </div>
-               </div>
-             </Card>
-
-             {userCards.length === 0 && availableTokens.length === 0 ? (
-               <Card className="p-6">
-                 <div className="text-center py-8">
-                   <div className="text-4xl mb-4">📇</div>
-                   <div className="text-lg font-bold text-white mb-2">No Items Yet</div>
-                   <div className="text-gray-400 mb-4">Purchase packs to start building your collection</div>
-                   <Button onClick={() => setActiveTab('packs')} variant="primary">
-                     Buy Packs
-                   </Button>
-                 </div>
-               </Card>
-             ) : (
-               <div className="space-y-6">
-                 {/* Players Section */}
-                 {(collectionFilter === 'all' || collectionFilter === 'players') && userCards.length > 0 && (
-                   <Card className="p-6">
-                     <div className="flex items-center justify-between mb-4">
-                       <h3 className="text-xl font-bold text-white">Player Cards ({userCards.length})</h3>
-                     </div>
-                     <CollectionListView 
-                       items={getCollectionItems().filter(item => item.type === 'player')}
-                       onItemClick={handleCollectionItemClick}
-                       onSellPlayer={handlePlayerSell}
-                       showActions={true}
-                       filterType="players"
-                     />
-                   </Card>
-                 )}
-
-                 {/* Tokens Section */}
-                 {(collectionFilter === 'all' || collectionFilter === 'tokens') && availableTokens.length > 0 && (
-                   <Card className="p-6">
-                     <div className="flex items-center justify-between mb-4">
-                       <h3 className="text-xl font-bold text-white">Tokens ({availableTokens.length})</h3>
-                     </div>
-                     <CollectionListView 
-                       items={getCollectionItems().filter(item => item.type === 'token')}
-                       onItemClick={handleCollectionItemClick}
-                       showActions={true}
-                       filterType="tokens"
-                     />
-                   </Card>
-                 )}
-               </div>
-             )}
-           </div>
-         )}
-
-                 {activeTab === 'packs' && (
+                 {activeTab === 'store' && (
            <div className="space-y-6">
              {/* Tab Header */}
              <div className="mb-6">
@@ -1107,10 +1103,9 @@ export default function TeamDashboard() {
               })}
             </div>
            ) : (
-             <div className="text-center py-8">
-               <div className="text-4xl mb-4">📦</div>
-               <div className="text-lg font-bold text-white mb-2">Loading Packs...</div>
-               <div className="text-gray-400">Please wait while we load available packs</div>
+             <div className="text-center py-6">
+               <div className="text-base font-bold text-white mb-2">Loading packs...</div>
+               <div className="text-sm text-gray-400">Please wait</div>
              </div>
            )}
 
@@ -1124,15 +1119,14 @@ export default function TeamDashboard() {
                </div>
                
                {userPacks.length === 0 ? (
-                 <div className="text-center py-8">
-                   <div className="text-4xl mb-4">📦</div>
-                   <div className="text-lg font-bold text-white mb-2">No packs yet</div>
-                   <div className="text-gray-400">Purchase your first pack above to get started</div>
+                 <div className="text-center py-6">
+                   <div className="text-base font-bold text-white mb-2">No packs</div>
+                   <div className="text-sm text-gray-400">Purchase a pack above</div>
                  </div>
                ) : (
                  <div className="space-y-3">
                    {userPacks.map((userPack) => (
-                     <div key={userPack.id} className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                     <div key={userPack.id} className="flex items-center justify-between p-4 rounded-lg border" style={{backgroundColor: 'var(--color-gunmetal)', borderColor: 'var(--color-steel)'}}>
                        <div className="flex items-center space-x-3">
                          <div className="text-2xl">📦</div>
                          <div>
@@ -1168,43 +1162,115 @@ export default function TeamDashboard() {
         )}
 
                  {activeTab === 'activity' && (
-           <div className="space-y-6">
-             {/* Tab Header */}
-             <div className="mb-6">
-               <div className="flex items-center justify-between">
-                 <div>
-                   <h2 className="text-2xl font-bold text-white">Team Activity</h2>
-                   <p className="text-lg" style={{color: 'var(--color-text-secondary)'}}>
-                     Track your team's transactions and lineup changes
-                   </p>
-                 </div>
-                 <div className="text-right">
-                   <div className="text-2xl font-bold text-white">12</div>
-                   <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
-                     Total Activities
-                   </div>
-                 </div>
-               </div>
-             </div>
+           <Card className="py-6">
+            <div className="flex items-center justify-between mb-6 px-6">
+              <h2 className="text-xl font-bold text-white">Recent Activity</h2>
+              <div className="text-sm text-gray-400">
+                Pack purchases, openings, and sales
+              </div>
+            </div>
 
-                         {/* Activity Filters */}
-             <Card className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <select
-                    className="w-full px-4 py-2 rounded-lg text-white transition-colors"
-                    style={{
-                      backgroundColor: 'var(--color-slate)',
-                      border: '1px solid var(--color-steel)'
-                    }}
-                  >
-                    <option value="all">All Activities</option>
-                    <option value="lineup">Lineup Changes</option>
-                    <option value="packs">Pack Purchases</option>
-                    <option value="trades">Trades</option>
-                    <option value="tokens">Token Usage</option>
-                  </select>
+            {(() => {
+              // Build activity feed from packs and transactions
+              const activities: Array<{
+                id: string
+                type: 'pack_purchase' | 'pack_opening' | 'card_sale'
+                timestamp: string
+                data: any
+              }> = []
+
+              // Add pack purchases (unopened packs were purchased)
+              userPacks.filter(p => p.status === 'unopened').forEach(pack => {
+                activities.push({
+                  id: `purchase-${pack.id}`,
+                  type: 'pack_purchase',
+                  timestamp: pack.created_at || new Date().toISOString(),
+                  data: pack
+                })
+              })
+
+              // Add pack openings (opened packs)
+              userPacks.filter(p => p.status === 'opened' && p.opened_at).forEach(pack => {
+                activities.push({
+                  id: `opening-${pack.id}`,
+                  type: 'pack_opening',
+                  timestamp: pack.opened_at!,
+                  data: pack
+                })
+              })
+
+              // Sort by timestamp (most recent first)
+              activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+              if (activities.length === 0) {
+                return (
+                  <div className="text-center py-12 text-gray-500 px-6">
+                    <div className="text-lg font-medium mb-2">No activity</div>
+                    <div className="text-sm">Purchase packs to see your activity here</div>
+                  </div>
+                )
+              }
+
+              return (
+                <div className="space-y-3">
+                  {activities.slice(0, 20).map(activity => {
+                    const timeAgo = (() => {
+                      const now = new Date()
+                      const then = new Date(activity.timestamp)
+                      const diffMs = now.getTime() - then.getTime()
+                      const diffMins = Math.floor(diffMs / 60000)
+                      const diffHours = Math.floor(diffMins / 60)
+                      const diffDays = Math.floor(diffHours / 24)
+
+                      if (diffMins < 1) return 'Just now'
+                      if (diffMins < 60) return `${diffMins}m ago`
+                      if (diffHours < 24) return `${diffHours}h ago`
+                      if (diffDays === 1) return 'Yesterday'
+                      if (diffDays < 7) return `${diffDays}d ago`
+                      return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    })()
+
+                    return (
+                      <div key={activity.id} className="flex items-start space-x-4 p-4 rounded-lg" style={{backgroundColor: 'var(--color-gunmetal)'}}>
+                        <div className="text-2xl flex-shrink-0">
+                          {activity.type === 'pack_purchase' && <Gift className="w-6 h-6 text-green-400" />}
+                          {activity.type === 'pack_opening' && <Package className="w-6 h-6 text-purple-400" />}
+                          {activity.type === 'card_sale' && <Coins className="w-6 h-6 text-yellow-400" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="font-semibold text-white">
+                              {activity.type === 'pack_purchase' && `Purchased ${activity.data.packs?.name || 'Pack'}`}
+                              {activity.type === 'pack_opening' && `Opened ${activity.data.packs?.name || 'Pack'}`}
+                              {activity.type === 'card_sale' && 'Sold Card'}
+                            </div>
+                            <div className="text-xs text-gray-400 flex-shrink-0 ml-2">{timeAgo}</div>
+                          </div>
+                          <div className="text-sm text-gray-400">
+                            {activity.type === 'pack_purchase' && (
+                              <span className="flex items-center gap-1">
+                                <Coins className="w-3 h-3" /> {activity.data.packs?.price_coins || 0} coins
+                              </span>
+                            )}
+                            {activity.type === 'pack_opening' && (
+                              <span>Received new cards and tokens</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
+              )
+            })()}
+          </Card>
+        )}
+
+         {/* Old activity code removed */}
+         {false && (
+           <div className="space-y-6">
+            <Card className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4" style={{display: 'none'}}>
                 <div>
                   <select
                     className="w-full px-4 py-2 rounded-lg text-white transition-colors"
@@ -1315,20 +1381,21 @@ export default function TeamDashboard() {
             </Card>
           </div>
         )}
-      </div>
-
-      {/* Collection Player Modal */}
-      {selectedCollectionPlayerId && (
-        <PlayerModal
-          playerId={selectedCollectionPlayerId}
-          isOpen={isCollectionModalOpen}
-          onClose={() => {
-            setIsCollectionModalOpen(false)
-            setSelectedCollectionPlayerId(null)
-          }}
-        />
+          </div>
+        </ContentContainer>
       )}
-      </ContentContainer>
-    </StandardLayout>
-  )
-}
+
+       {/* Collection Player Modal */}
+       {selectedCollectionPlayerId && (
+         <PlayerModal
+           playerId={selectedCollectionPlayerId}
+           isOpen={isCollectionModalOpen}
+           onClose={() => {
+             setIsCollectionModalOpen(false)
+             setSelectedCollectionPlayerId(null)
+           }}
+         />
+       )}
+     </StandardLayout>
+   )
+ }

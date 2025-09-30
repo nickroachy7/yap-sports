@@ -5,7 +5,6 @@ import { createSupabaseBrowserClient } from '@/lib/supabaseClient';
 import { Card, Button, TextInput } from '@/components/ui';
 
 type AuthMode = 'signin' | 'signup';
-type AuthMethod = 'password' | 'magic-link';
 
 export default function AuthPage() {
   const supabase = createSupabaseBrowserClient();
@@ -18,7 +17,6 @@ export default function AuthPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('signin');
-  const [authMethod, setAuthMethod] = useState<AuthMethod>('password');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -92,7 +90,7 @@ export default function AuthPage() {
     setLoading(true);
     setMessage(null);
     
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -102,42 +100,33 @@ export default function AuthPage() {
     
     if (error) {
       setMessage(error.message);
+    } else if (data.user && !data.session) {
+      setMessage('Account created! Please check your email to verify your account, then return here to sign in.');
+      // Switch to sign in mode after a delay
+      setTimeout(() => {
+        setAuthMode('signin');
+        setMessage('Account created! You can now sign in with your email and password.');
+      }, 3000);
     } else {
-      setMessage('Account created! Please check your email to verify your account.');
+      setMessage('Account created and signed in successfully!');
+      // User will be automatically redirected by useEffect
     }
     
     setLoading(false);
   }
 
-  async function signInWithMagicLink() {
-    if (!email) {
-      setMessage('Please enter your email address');
-      return;
-    }
-
-    setLoading(true);
-    setMessage(null);
-    
-    const { error } = await supabase.auth.signInWithOtp({ 
-      email, 
-      options: { 
-        shouldCreateUser: true,
-        emailRedirectTo: `${window.location.origin}/auth`
-      } 
-    });
-    
-    if (error) {
-      setMessage(error.message);
-    } else {
-      setMessage('Check your email for a magic link!');
-    }
-    
-    setLoading(false);
-  }
 
   async function signOut() {
-    await supabase.auth.signOut();
-    router.push('/');
+    try {
+      console.log('AuthPage: Signing out...')
+      await supabase.auth.signOut();
+      console.log('AuthPage: Sign out successful')
+      router.push('/');
+    } catch (error) {
+      console.error('AuthPage: Sign out error:', error)
+      // Still redirect even if there's an error
+      router.push('/');
+    }
   }
 
   if (userId) {
@@ -185,29 +174,6 @@ export default function AuthPage() {
           </p>
         </div>
 
-        {/* Auth Method Toggle */}
-        <div className="flex rounded-lg p-1 mb-6" style={{ backgroundColor: 'var(--color-slate)' }}>
-          <button
-            onClick={() => setAuthMethod('password')}
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-              authMethod === 'password'
-                ? 'bg-green-600 text-white'
-                : 'text-gray-300 hover:text-white'
-            }`}
-          >
-            🔐 Password
-          </button>
-          <button
-            onClick={() => setAuthMethod('magic-link')}
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-              authMethod === 'magic-link'
-                ? 'bg-green-600 text-white'
-                : 'text-gray-300 hover:text-white'
-            }`}
-          >
-            ✨ Magic Link
-          </button>
-        </div>
 
         {/* Form */}
         <div className="space-y-4">
@@ -221,37 +187,32 @@ export default function AuthPage() {
             disabled={loading}
           />
 
-          {/* Password Inputs (only for password method) */}
-          {authMethod === 'password' && (
-            <>
-              <TextInput
-                type="password"
-                label="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                disabled={loading}
-              />
+          {/* Password Input */}
+          <TextInput
+            type="password"
+            label="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Enter your password"
+            disabled={loading}
+          />
 
-              {authMode === 'signup' && (
-                <TextInput
-                  type="password"
-                  label="Confirm Password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm your password"
-                  disabled={loading}
-                />
-              )}
-            </>
+          {/* Confirm Password (only for signup) */}
+          {authMode === 'signup' && (
+            <TextInput
+              type="password"
+              label="Confirm Password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm your password"
+              disabled={loading}
+            />
           )}
 
           {/* Submit Button */}
           <Button
             onClick={() => {
-              if (authMethod === 'magic-link') {
-                signInWithMagicLink();
-              } else if (authMode === 'signin') {
+              if (authMode === 'signin') {
                 signInWithPassword();
               } else {
                 signUpWithPassword();
@@ -261,12 +222,7 @@ export default function AuthPage() {
             fullWidth
             loading={loading}
           >
-            {authMethod === 'magic-link' 
-              ? 'Send Magic Link' 
-              : authMode === 'signin' 
-                ? 'Sign In' 
-                : 'Create Account'
-            }
+            {authMode === 'signin' ? 'Sign In' : 'Create Account'}
           </Button>
 
           {/* Toggle Auth Mode */}
@@ -302,11 +258,7 @@ export default function AuthPage() {
 
         {/* Additional Info */}
         <div className="mt-8 pt-6 border-t text-center text-xs text-gray-500" style={{ borderColor: 'var(--color-steel)' }}>
-          {authMethod === 'magic-link' ? (
-            <p>Magic links are secure, passwordless authentication. Check your email and click the link to sign in.</p>
-          ) : (
-            <p>Your password should be at least 6 characters long for security.</p>
-          )}
+          <p>Your password should be at least 6 characters long for security.</p>
         </div>
       </Card>
     </div>

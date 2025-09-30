@@ -236,9 +236,13 @@ export function FilterToggle({ active, onClick, children, className }: FilterTog
         "px-3 py-2 rounded-lg text-sm font-medium transition-colors border",
         active 
           ? "bg-green-600 text-white border-green-600" 
-          : "bg-slate-700 text-gray-300 border-slate-600 hover:bg-slate-600 hover:text-white",
+          : "text-gray-300 border hover:text-white",
         className
       )}
+      style={!active ? {
+        backgroundColor: 'var(--color-gunmetal)',
+        borderColor: 'var(--color-steel)'
+      } : undefined}
     >
       {children}
     </button>

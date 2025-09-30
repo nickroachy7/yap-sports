@@ -5,10 +5,10 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter, usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { createSupabaseBrowserClient } from '@/lib/supabaseClient'
-import { checkAuthWithRetry, loadTeamsWithRetry } from '@/lib/authUtils'
+import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/utils'
+import { Trophy, Palette, LogOut, Plus } from 'lucide-react'
 
 type UserTeam = {
   id: string
@@ -17,64 +17,20 @@ type UserTeam = {
   active: boolean
 }
 
-type User = {
-  id: string
-  email: string
-  username?: string
-}
-
 export function TeamSidebar() {
   const router = useRouter()
   const pathname = usePathname()
-  const supabase = createSupabaseBrowserClient()
+  const { user, userTeams, loading, initialized, signOut: authSignOut } = useAuth()
   
-  const [user, setUser] = useState<User | null>(null)
-  const [userTeams, setUserTeams] = useState<UserTeam[]>([])
   const [currentTeam, setCurrentTeam] = useState<UserTeam | null>(null)
-  const [loading, setLoading] = useState(true)
 
-  // Load authentication and teams
-  useEffect(() => {
-    async function loadAuth() {
-      console.log('TeamSidebar: Starting auth check...')
-      const authResult = await checkAuthWithRetry()
-      
-      if (authResult.success && authResult.userId) {
-        const { data: { session } } = await supabase.auth.getSession()
-        setUser({
-          id: authResult.userId,
-          email: session?.user?.email || '',
-          username: session?.user?.user_metadata?.username
-        })
-        await loadUserTeams(authResult.userId)
-      } else {
-        console.log('TeamSidebar: Auth failed:', authResult.error)
-        setLoading(false)
-      }
-    }
-    
-    loadAuth()
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          username: session.user.user_metadata?.username
-        })
-        await loadUserTeams(session.user.id)
-      } else {
-        setUser(null)
-        setUserTeams([])
-        setCurrentTeam(null)
-        setLoading(false)
-      }
-    })
-
-    return () => {
-      authListener.subscription.unsubscribe()
-    }
-  }, [supabase.auth])
+  console.log('[TeamSidebar] Render:', { 
+    hasUser: !!user, 
+    teamsCount: userTeams.length, 
+    loading, 
+    initialized,
+    pathname 
+  })
 
   // Extract current team from URL
   useEffect(() => {
@@ -88,41 +44,87 @@ export function TeamSidebar() {
     }
   }, [pathname, userTeams])
 
-  // Load user teams
-  async function loadUserTeams(uid: string) {
-    console.log('TeamSidebar: Loading teams for user:', uid)
-    const teamsResult = await loadTeamsWithRetry(uid)
-    
-    if (teamsResult.success) {
-      setUserTeams(teamsResult.teams)
-      console.log('TeamSidebar: Successfully loaded teams:', teamsResult.teams.length)
-    } else {
-      console.error('TeamSidebar: Failed to load teams:', teamsResult.error)
-      setUserTeams([])
-    }
-    
-    setLoading(false)
-  }
-
   // Sign out function
-  const signOut = async () => {
-    await supabase.auth.signOut()
-    router.push('/auth')
+  const handleSignOut = async () => {
+    try {
+      setCurrentTeam(null)
+      await authSignOut()
+      // Redirect to home page
+      router.push('/')
+    } catch (error) {
+      console.error('TeamSidebar: Sign out error:', error)
+      router.push('/')
+    }
   }
 
-  // If not authenticated, don't show sidebar
+  // Show loading state while initializing
+  if (loading && !initialized) {
+    return (
+      <div
+        className="fixed left-0 top-0 h-full w-64 z-50 flex flex-col items-center justify-center"
+        style={{backgroundColor: 'var(--color-obsidian)', borderRight: '1px solid var(--color-steel)'}}
+      >
+        <div className="text-center">
+          <div className="text-lg text-white mb-2">Loading...</div>
+          <div className="text-sm text-gray-400">Initializing auth</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show guest view if not authenticated
   if (!user) {
-    return null
+    return (
+      <div
+        className="fixed left-0 top-0 h-full w-64 z-50 flex flex-col"
+        style={{backgroundColor: 'var(--color-obsidian)', borderRight: '1px solid var(--color-steel)'}}
+      >
+        {/* Header */}
+        <div className="p-6 border-b border-gray-700 flex items-center justify-center">
+          <div 
+            onClick={() => router.push('/')}
+            className="cursor-pointer hover:opacity-80 transition-opacity"
+            title="Go to Homepage"
+          >
+            <Image
+              src="/yapsports-logo.png"
+              alt="YAP Sports Logo"
+              width={160}
+              height={60}
+              className="object-contain"
+            />
+          </div>
+        </div>
+
+        {/* Guest Content */}
+        <div className="flex-1 p-6">
+          <div className="text-center mb-6">
+            <h3 className="text-lg font-semibold text-white mb-2">Welcome to YAP Sports!</h3>
+            <p className="text-sm text-gray-400 mb-4">Sign in to access your teams and start playing fantasy sports.</p>
+            <Button 
+              onClick={() => router.push('/auth')}
+              variant="primary"
+              fullWidth
+            >
+              Sign In / Sign Up
+            </Button>
+          </div>
+
+          {/* Navigation for guests */}
+          <nav className="space-y-2">
+            <a 
+              href="/players" 
+              className="flex items-center space-x-3 p-3 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+            >
+              <span className="text-lg">👥</span>
+              <span>Browse Players</span>
+            </a>
+          </nav>
+        </div>
+      </div>
+    )
   }
 
-  console.log('TeamSidebar render:', { 
-    user: user?.id, 
-    userTeams: userTeams.length, 
-    loading, 
-    currentTeam: currentTeam?.id,
-    pathname,
-    teamsData: userTeams
-  })
 
   return (
     <div
@@ -131,14 +133,20 @@ export function TeamSidebar() {
     >
       {/* Header */}
       <div className="p-6 border-b border-gray-700 flex items-center justify-center">
-        <Image
-          src="/yapsports-logo.png"
-          alt="YAP Sports Logo"
-          width={160}
-          height={60}
-          className="object-contain"
-          priority
-        />
+        <div 
+          onClick={() => router.push('/')}
+          className="cursor-pointer hover:opacity-80 transition-opacity"
+          title="Go to Homepage"
+        >
+          <Image
+            src="/yapsports-logo.png"
+            alt="YAP Sports Logo"
+            width={160}
+            height={60}
+            className="object-contain"
+            priority
+          />
+        </div>
       </div>
 
       {/* Teams Section */}
@@ -185,10 +193,13 @@ export function TeamSidebar() {
               </Link>
             ))
           ) : (
-            <div className="text-gray-400 text-sm p-3 text-center">
+            <button
+              onClick={() => router.push('/teams/create')}
+              className="w-full text-gray-400 text-sm p-3 text-center hover:bg-gray-700 rounded-lg transition-colors"
+            >
               <div className="mb-2">No teams found</div>
               <div className="text-xs">Create your first team to get started!</div>
-            </div>
+            </button>
           )}
         </div>
       </div>
@@ -207,7 +218,7 @@ export function TeamSidebar() {
               )}
             >
               <div className="w-8 h-8 rounded-lg flex items-center justify-center text-lg">
-                🏈
+                <Trophy className="w-5 h-5" />
               </div>
               <span className="font-medium">Players</span>
             </motion.div>
@@ -222,7 +233,7 @@ export function TeamSidebar() {
               )}
             >
               <div className="w-8 h-8 rounded-lg flex items-center justify-center text-lg">
-                🎨
+                <Palette className="w-5 h-5" />
               </div>
               <span className="font-medium">Design</span>
             </motion.div>
@@ -235,23 +246,23 @@ export function TeamSidebar() {
         {/* User Profile */}
         <div className="flex items-center space-x-3 p-3 rounded-lg bg-gray-800 mb-4">
           <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">
-            {user.username?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
+            {user?.user_metadata?.username?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'U'}
           </div>
           <div className="flex-1 min-w-0">
             <div className="font-medium text-white text-sm truncate">
-              {user.username || user.email?.split('@')[0]}
+              {user?.user_metadata?.username || user?.email?.split('@')[0]}
             </div>
-            <div className="text-xs text-gray-400 truncate">{user.email}</div>
+            <div className="text-xs text-gray-400 truncate">{user?.email}</div>
           </div>
         </div>
 
         {/* Sign Out Button */}
         <Button
-          onClick={signOut}
+          onClick={handleSignOut}
           variant="ghost"
           className="w-full justify-start text-gray-300 hover:text-white hover:bg-gray-700"
         >
-          <span className="mr-3">🚪</span>
+          <LogOut className="w-4 h-4 mr-3" />
           Sign Out
         </Button>
       </div>

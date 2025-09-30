@@ -1,68 +1,29 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createSupabaseBrowserClient } from '@/lib/supabaseClient'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, Button } from '@/components/ui'
-
-type UserTeam = {
-  id: string
-  name: string
-  coins: number
-  user_id: string
-  created_at: string
-}
 
 export default function DashboardHome() {
   const router = useRouter()
-  const supabase = createSupabaseBrowserClient()
-  
-  const [userId, setUserId] = useState<string | null>(null)
-  const [userTeams, setUserTeams] = useState<UserTeam[]>([])
-  const [loading, setLoading] = useState(true)
+  const { user, userTeams, loading } = useAuth()
 
   useEffect(() => {
-    async function loadAuth() {
-      const { data: { session }, error } = await supabase.auth.getSession()
-      if (error) {
-        console.error('Auth error:', error)
-        router.push('/auth')
-        return
-      }
-      
-      if (session?.user?.id) {
-        setUserId(session.user.id)
-        await loadUserTeams(session.user.id)
-      } else {
-        router.push('/auth')
-      }
+    // Wait for auth to initialize
+    if (loading) return
+    
+    // Redirect to auth if not signed in
+    if (!user) {
+      router.push('/auth')
+      return
     }
     
-    loadAuth()
-  }, [router, supabase.auth])
-
-  async function loadUserTeams(uid: string) {
-    try {
-      const { data: teams, error } = await supabase
-        .from('user_teams')
-        .select('*')
-        .eq('user_id', uid)
-        .eq('active', true)
-        .order('created_at', { ascending: true })
-
-      if (error) throw error
-      setUserTeams(teams || [])
-      
-      // If user has teams, redirect to the first one
-      if (teams && teams.length > 0) {
-        router.push(`/dashboard/${teams[0].id}`)
-      }
-    } catch (error) {
-      console.error('Error loading teams:', error)
-    } finally {
-      setLoading(false)
+    // If user has teams, redirect to the first one
+    if (userTeams.length > 0) {
+      router.push(`/dashboard/${userTeams[0].id}`)
     }
-  }
+  }, [user, userTeams, loading, router])
 
   if (loading) {
     return (
@@ -75,7 +36,7 @@ export default function DashboardHome() {
     )
   }
 
-  if (userTeams.length === 0) {
+  if (!loading && user && userTeams.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{backgroundColor: 'var(--color-obsidian)'}}>
         <Card className="p-8 max-w-md w-full text-center">
@@ -84,7 +45,7 @@ export default function DashboardHome() {
           <p className="text-base mb-6" style={{color: 'var(--color-text-secondary)'}}>
             Create your first fantasy team to get started with pack opening, lineup building, and competitive play.
           </p>
-          <Button variant="primary" fullWidth onClick={() => router.push('/teams')}>
+          <Button variant="primary" fullWidth onClick={() => router.push('/teams/create')}>
             Create Your First Team
           </Button>
         </Card>
@@ -122,8 +83,8 @@ export default function DashboardHome() {
         </div>
 
         <div className="text-center">
-          <Button variant="ghost" onClick={() => router.push('/teams')}>
-            Manage All Teams
+          <Button variant="ghost" onClick={() => router.push('/teams/create')}>
+            Create Another Team
           </Button>
         </div>
       </div>

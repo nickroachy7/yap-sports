@@ -73,7 +73,7 @@ export function PageHeader({
 // Standard content container with consistent spacing
 export function ContentContainer({ children, className }: StandardLayoutProps) {
   return (
-    <div className={cn("max-w-7xl mx-auto px-6", className)}>
+    <div className={cn("max-w-7xl mx-auto", className)}>
       {children}
     </div>
   )

@@ -1,145 +1,238 @@
-import Link from 'next/link';
+'use client'
+
+import Link from 'next/link'
+import { motion } from 'framer-motion'
 
 export default function Home() {
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+        delayChildren: 0.2
+      }
+    }
+  }
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { 
+      opacity: 1, 
+      y: 0,
+      transition: { duration: 0.5, ease: 'easeOut' }
+    }
+  }
+
   return (
-    <main className="p-6">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-4">Welcome to YAP Sports</h1>
-        <p className="text-xl text-gray-600">
-          The ultimate fantasy football experience with real NFL data, strategic gameplay, and competitive rewards.
-        </p>
-      </div>
-
-      <div className="space-y-6">
-        {/* Hero Section */}
-        <div className="bg-gradient-to-r from-gray-800 to-gray-900 text-white rounded-lg p-8 border border-gray-700">
-          <h2 className="text-3xl font-bold mb-4">🏆 Complete Fantasy Football Platform</h2>
-          <p className="text-lg mb-6">
-            Open card packs, build strategic lineups, apply conditional tokens, and compete with real NFL performance data.
+    <motion.main 
+      className="p-8 min-h-screen"
+      initial="hidden"
+      animate="visible"
+      variants={containerVariants}
+    >
+      {/* Hero Section */}
+      <motion.div variants={itemVariants} className="mb-16 text-center">
+        <div className="mb-6">
+          <h1 className="text-6xl font-black mb-6 text-gradient-primary leading-tight">
+            YAP SPORTS
+          </h1>
+          <div className="h-1 w-32 mx-auto bg-gradient-to-r from-transparent via-white to-transparent mb-6"></div>
+          <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
+            The ultimate fantasy football experience with real NFL data, strategic card gameplay, and competitive rewards.
           </p>
-          <div className="space-x-4">
-            <Link href="/auth" className="bg-white text-gray-900 px-6 py-3 rounded-lg font-semibold hover:bg-gray-100 transition inline-block">
-              Get Started
-            </Link>
-            <Link href="/dashboard" className="border-2 border-white text-white px-6 py-3 rounded-lg font-semibold hover:bg-white hover:text-gray-900 transition inline-block">
-              My Dashboard
-            </Link>
-          </div>
         </div>
+        
+        <div className="flex justify-center space-x-6 mt-8">
+          <Link href="/auth" className="btn btn-success text-lg px-8 py-4">
+            Get Started
+          </Link>
+          <Link href="/dashboard" className="btn btn-outline text-lg px-8 py-4">
+            My Dashboard
+          </Link>
+        </div>
+      </motion.div>
 
-        {/* Features Grid */}
+      {/* Core Features Grid */}
+      <motion.div variants={itemVariants} className="mb-16">
+        <h2 className="text-3xl font-bold text-white mb-8 text-center">Core Features</h2>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition">
-            <div className="text-3xl mb-3">🎒</div>
-            <h3 className="text-xl font-semibold mb-2">Pack System</h3>
-            <p className="text-gray-600 mb-4">Open card packs to collect real NFL players with strategic card management.</p>
-            <Link href="/packs" className="text-gray-700 hover:text-gray-900 font-medium">
-              Open Packs →
+          
+          <motion.div 
+            className="card group cursor-pointer"
+            whileHover={{ y: -8, scale: 1.02 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+          >
+            <Link href="/packs" className="block h-full">
+              <div className="text-center">
+                <div className="text-4xl mb-4 group-hover:scale-110 transition-transform duration-300">🎒</div>
+                <h3 className="text-xl font-bold text-white mb-3">Pack System</h3>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Open strategic card packs to collect real NFL players with dynamic rarity systems.
+                </p>
+                <div className="mt-4 text-lime-400 text-sm font-medium">
+                  Open Packs →
+                </div>
+              </div>
             </Link>
-          </div>
+          </motion.div>
 
-          <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition">
-            <div className="text-3xl mb-3">🔍</div>
-            <h3 className="text-xl font-semibold mb-2">Player Research</h3>
-            <p className="text-gray-600 mb-4">Deep dive into player stats, matchup analysis, and performance trends.</p>
-            <Link href="/players" className="text-gray-700 hover:text-gray-900 font-medium">
-              Research Players →
+          <motion.div 
+            className="card group cursor-pointer"
+            whileHover={{ y: -8, scale: 1.02 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+          >
+            <Link href="/players" className="block h-full">
+              <div className="text-center">
+                <div className="text-4xl mb-4 group-hover:scale-110 transition-transform duration-300">🔍</div>
+                <h3 className="text-xl font-bold text-white mb-3">Player Research</h3>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Deep analytics, matchup data, and performance trends for strategic decisions.
+                </p>
+                <div className="mt-4 text-lime-400 text-sm font-medium">
+                  Research Players →
+                </div>
+              </div>
             </Link>
-          </div>
+          </motion.div>
 
-          <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition">
-            <div className="text-3xl mb-3">🏈</div>
-            <h3 className="text-xl font-semibold mb-2">Strategic Lineups</h3>
-            <p className="text-gray-600 mb-4">Build optimal lineups with position constraints and conditional token bonuses.</p>
-            <Link href="/lineup" className="text-gray-700 hover:text-gray-900 font-medium">
-              Set Lineup →
+          <motion.div 
+            className="card group cursor-pointer"
+            whileHover={{ y: -8, scale: 1.02 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+          >
+            <Link href="/lineup" className="block h-full">
+              <div className="text-center">
+                <div className="text-4xl mb-4 group-hover:scale-110 transition-transform duration-300">🏈</div>
+                <h3 className="text-xl font-bold text-white mb-3">Strategic Lineups</h3>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Build optimal lineups with position constraints and conditional token bonuses.
+                </p>
+                <div className="mt-4 text-lime-400 text-sm font-medium">
+                  Set Lineup →
+                </div>
+              </div>
             </Link>
-          </div>
+          </motion.div>
 
-          <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition">
-            <div className="text-3xl mb-3">📊</div>
-            <h3 className="text-xl font-semibold mb-2">Live Scoring</h3>
-            <p className="text-gray-600 mb-4">Real-time scoring based on actual NFL performance with automated rewards.</p>
-            <Link href="/team" className="text-gray-700 hover:text-gray-900 font-medium">
-              View Team →
+          <motion.div 
+            className="card group cursor-pointer"
+            whileHover={{ y: -8, scale: 1.02 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+          >
+            <Link href="/players" className="block h-full">
+              <div className="text-center">
+                <div className="text-4xl mb-4 group-hover:scale-110 transition-transform duration-300">📊</div>
+                <h3 className="text-xl font-bold text-white mb-3">Live Scoring</h3>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  Real-time scoring based on actual NFL performance with automated rewards.
+                </p>
+                <div className="mt-4 text-lime-400 text-sm font-medium">
+                  View Stats →
+                </div>
+              </div>
             </Link>
-          </div>
+          </motion.div>
+
         </div>
+      </motion.div>
 
-        {/* Fantasy Features */}
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h2 className="text-2xl font-bold mb-6">🎯 Advanced Fantasy Features</h2>
-          <div className="grid md:grid-cols-3 gap-6">
-            <div>
-              <h3 className="text-lg font-semibold mb-3 text-purple-600">🎲 Token System</h3>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li>• Conditional bonuses: "2+ TDs = +10 points"</li>
-                <li>• Strategic token application to players</li>
-                <li>• Position-specific token recommendations</li>
-                <li>• Risk/reward decision making</li>
+      {/* Advanced Features */}
+      <motion.div variants={itemVariants} className="mb-16">
+        <div className="card">
+          <h2 className="text-3xl font-bold text-white mb-8 text-center">Advanced Systems</h2>
+          <div className="grid md:grid-cols-3 gap-8">
+            
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-purple-900/30 border border-purple-600/50 mb-4">
+                <span className="text-2xl">🎲</span>
+              </div>
+              <h3 className="text-xl font-bold text-purple-400 mb-4">Token System</h3>
+              <ul className="space-y-2 text-sm text-gray-300">
+                <li className="flex items-center"><span className="text-purple-400 mr-2">•</span> Conditional bonuses: "2+ TDs = +10 points"</li>
+                <li className="flex items-center"><span className="text-purple-400 mr-2">•</span> Strategic token application to players</li>
+                <li className="flex items-center"><span className="text-purple-400 mr-2">•</span> Position-specific recommendations</li>
+                <li className="flex items-center"><span className="text-purple-400 mr-2">•</span> Risk/reward decision making</li>
               </ul>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold mb-3 text-green-600">💰 Economic System</h3>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li>• Contract-based player usage</li>
-                <li>• Dynamic card sell values</li>
-                <li>• Pack-based acquisition system</li>
-                <li>• Coin economy with multiple income sources</li>
+
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-lime-900/30 border border-lime-600/50 mb-4">
+                <span className="text-2xl">💰</span>
+              </div>
+              <h3 className="text-xl font-bold text-lime-400 mb-4">Economic System</h3>
+              <ul className="space-y-2 text-sm text-gray-300">
+                <li className="flex items-center"><span className="text-lime-400 mr-2">•</span> Contract-based player usage</li>
+                <li className="flex items-center"><span className="text-lime-400 mr-2">•</span> Dynamic card sell values</li>
+                <li className="flex items-center"><span className="text-lime-400 mr-2">•</span> Pack-based acquisition system</li>
+                <li className="flex items-center"><span className="text-lime-400 mr-2">•</span> Multiple income sources</li>
               </ul>
             </div>
-            <div>
-              <h3 className="text-lg font-semibold mb-3 text-gray-700">📈 Real NFL Data</h3>
-              <ul className="space-y-2 text-sm text-gray-600">
-                <li>• Live player performance tracking</li>
-                <li>• Automated post-game scoring</li>
-                <li>• Real team and schedule integration</li>
-                <li>• Comprehensive player analytics</li>
+
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-900/30 border border-amber-600/50 mb-4">
+                <span className="text-2xl">📈</span>
+              </div>
+              <h3 className="text-xl font-bold text-amber-400 mb-4">Real NFL Data</h3>
+              <ul className="space-y-2 text-sm text-gray-300">
+                <li className="flex items-center"><span className="text-amber-400 mr-2">•</span> Live player performance tracking</li>
+                <li className="flex items-center"><span className="text-amber-400 mr-2">•</span> Automated post-game scoring</li>
+                <li className="flex items-center"><span className="text-amber-400 mr-2">•</span> Real team and schedule integration</li>
+                <li className="flex items-center"><span className="text-amber-400 mr-2">•</span> Comprehensive analytics</li>
               </ul>
             </div>
+
           </div>
         </div>
+      </motion.div>
 
-        {/* Quick Actions */}
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
-          <h2 className="text-2xl font-bold mb-4">⚡ Quick Actions</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Link href="/packs" className="text-center p-4 bg-white rounded border hover:shadow transition block">
-              <div className="text-2xl mb-2">🎒</div>
-              <div className="font-medium">Buy Packs</div>
-              <div className="text-sm text-gray-600">Get player cards</div>
-            </Link>
-            <Link href="/players" className="text-center p-4 bg-white rounded border hover:shadow transition block">
-              <div className="text-2xl mb-2">👥</div>
-              <div className="font-medium">Research Players</div>
-              <div className="text-sm text-gray-600">Advanced analytics & stats</div>
-            </Link>
-            <Link href="/lineup" className="text-center p-4 bg-white rounded border hover:shadow transition block">
-              <div className="text-2xl mb-2">🏈</div>
-              <div className="font-medium">Set Lineup</div>
-              <div className="text-sm text-gray-600">Build your team</div>
-            </Link>
-            <Link href="/admin/dashboard" className="text-center p-4 bg-white rounded border hover:shadow transition block">
-              <div className="text-2xl mb-2">⚙️</div>
-              <div className="font-medium">Admin</div>
-              <div className="text-sm text-gray-600">Manage platform</div>
-            </Link>
-          </div>
+      {/* Quick Actions */}
+      <motion.div variants={itemVariants} className="mb-16">
+        <h2 className="text-3xl font-bold text-white mb-8 text-center">Quick Actions</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          
+          <Link href="/packs" className="card text-center group cursor-pointer">
+            <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-300">🎒</div>
+            <div className="font-bold text-white text-lg">Buy Packs</div>
+            <div className="text-sm text-gray-400">Get player cards</div>
+          </Link>
+
+          <Link href="/players" className="card text-center group cursor-pointer">
+            <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-300">👥</div>
+            <div className="font-bold text-white text-lg">Research</div>
+            <div className="text-sm text-gray-400">Advanced analytics</div>
+          </Link>
+
+          <Link href="/lineup" className="card text-center group cursor-pointer">
+            <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-300">🏈</div>
+            <div className="font-bold text-white text-lg">Set Lineup</div>
+            <div className="text-sm text-gray-400">Build your team</div>
+          </Link>
+
+          <Link href="/admin/dashboard" className="card text-center group cursor-pointer">
+            <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-300">⚙️</div>
+            <div className="font-bold text-white text-lg">Admin</div>
+            <div className="text-sm text-gray-400">Manage platform</div>
+          </Link>
+
         </div>
+      </motion.div>
 
-        {/* Status Banner */}
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-center space-x-3">
-            <div className="text-green-600 text-xl">✅</div>
+      {/* Status Banner */}
+      <motion.div variants={itemVariants}>
+        <div className="card border-lime-600/50 bg-gradient-to-r from-lime-900/20 to-lime-800/10">
+          <div className="flex items-center justify-center space-x-4 text-center">
+            <div className="text-lime-400 text-2xl">✅</div>
             <div>
-              <div className="font-semibold text-green-800">Platform Status: Fully Operational</div>
-              <div className="text-sm text-green-700">
+              <div className="font-bold text-lime-300 text-lg">Platform Status: Fully Operational</div>
+              <div className="text-sm text-lime-400/80 mt-1">
                 NFL data integrated • Live scoring active • Player research available • All systems operational
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </main>
-  );
+      </motion.div>
+      
+    </motion.main>
+  )
 }

@@ -9,10 +9,8 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // Enable experimental features for Supabase
-  experimental: {
-    serverComponentsExternalPackages: ['@supabase/supabase-js'],
-  },
+  // External packages for server components
+  serverExternalPackages: ['@supabase/supabase-js'],
 };
 
 export default nextConfig;

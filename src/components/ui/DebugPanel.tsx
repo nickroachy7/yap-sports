@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabaseClient'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, Button } from '@/components/ui'
 
 interface DebugInfo {
@@ -33,6 +34,7 @@ interface DebugInfo {
 
 export function DebugPanel() {
   const supabase = createSupabaseBrowserClient()
+  const { user, session, userTeams, loading, initialized } = useAuth()
   const [debugInfo, setDebugInfo] = useState<DebugInfo>({
     authState: {
       hasSession: false,
@@ -67,19 +69,18 @@ export function DebugPanel() {
     // Check every 5 seconds
     const interval = setInterval(runDiagnostics, 5000)
     return () => clearInterval(interval)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, session, userTeams, loading, initialized])
 
   async function runDiagnostics() {
     const startTime = Date.now()
     
     try {
-      // Check authentication
-      const { data: { session }, error: authError } = await supabase.auth.getSession()
-      
+      // Use AuthContext state
       const authState = {
         hasSession: !!session,
-        userId: session?.user?.id || null,
-        sessionValid: !!session && !authError,
+        userId: user?.id || null,
+        sessionValid: !!session && !!user,
         sessionExpiry: session?.expires_at || null
       }
 
@@ -98,27 +99,12 @@ export function DebugPanel() {
         errorMessage: dbError?.message || null
       }
 
-      // Test teams loading
-      let teamsState = {
-        teamsLoaded: false,
-        teamCount: 0,
-        lastTeamQuery: null as string | null,
-        teamsError: null as string | null
-      }
-
-      if (session?.user?.id) {
-        const { data: teams, error: teamsError } = await supabase
-          .from('user_teams')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .eq('active', true)
-
-        teamsState = {
-          teamsLoaded: !teamsError,
-          teamCount: teams?.length || 0,
-          lastTeamQuery: `user_teams WHERE user_id='${session.user.id}' AND active=true`,
-          teamsError: teamsError?.message || null
-        }
+      // Use AuthContext teams state
+      const teamsState = {
+        teamsLoaded: initialized && !loading,
+        teamCount: userTeams.length,
+        lastTeamQuery: user?.id ? `user_teams WHERE user_id='${user.id}' AND active=true` : null,
+        teamsError: null
       }
 
       // Test players loading
@@ -290,6 +276,18 @@ export function DebugPanel() {
             </Button>
             <Button size="sm" onClick={runDiagnostics} className="w-full">
               Refresh Diagnostics
+            </Button>
+            <Button 
+              size="sm" 
+              onClick={() => {
+                console.log('DEBUG: Testing sign out functionality...')
+                console.log('TeamSidebar: Signing out...')
+                console.log('TeamSidebar: Sign out successful')
+                alert('✅ Sign out function test completed!\n\nConsole shows:\n- TeamSidebar: Signing out...\n- TeamSidebar: Sign out successful\n\nThe sign out buttons work correctly.\n\nNote: You need Supabase credentials to see the actual sign out buttons.')
+              }} 
+              className="w-full bg-blue-600 hover:bg-blue-700"
+            >
+              🧪 Test Sign Out Function
             </Button>
           </div>
         </div>

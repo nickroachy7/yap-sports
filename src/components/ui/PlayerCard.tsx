@@ -51,7 +51,7 @@ const PlayerCard = React.forwardRef<HTMLDivElement, PlayerCardProps>(
   }, ref) => {
     
          const sizeClasses = {
-       compact: 'w-40 h-64',
+       compact: 'w-28 h-40',
        default: 'w-80 h-[480px]',
        large: 'w-96 h-[540px]'
      }
@@ -67,10 +67,10 @@ const PlayerCard = React.forwardRef<HTMLDivElement, PlayerCardProps>(
     
     const getRarityGradient = (rarity: string) => {
       const gradients = {
-        common: 'from-gray-800 via-gray-900 to-black',
-        uncommon: 'from-emerald-900 via-gray-900 to-black',
-        rare: 'from-slate-700 via-slate-800 to-black', 
-        epic: 'from-purple-900 via-gray-900 to-black',
+        common: 'from-neutral-900 via-black to-black',
+        uncommon: 'from-emerald-900 via-neutral-900 to-black',
+        rare: 'from-neutral-800 via-neutral-900 to-black', 
+        epic: 'from-purple-900 via-neutral-900 to-black',
         legendary: 'from-amber-900 via-yellow-900 to-black'
       }
       return gradients[rarity as keyof typeof gradients] || gradients.common
@@ -140,14 +140,14 @@ const PlayerCard = React.forwardRef<HTMLDivElement, PlayerCardProps>(
                      {/* Player Image Section */}
            <div className={cn(
              "flex-1 flex flex-col items-center justify-center relative min-h-0",
-             size === 'compact' ? 'px-4 py-4' : 'px-6 pb-6'
+             size === 'compact' ? 'px-2 py-2' : 'px-6 pb-6'
            )}>
              {/* Background Glow Effect */}
              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/5 to-transparent opacity-50"></div>
              
              <div className={cn(
                "flex flex-col items-center justify-center relative z-10",
-               size === 'compact' ? 'space-y-2' : 'space-y-4'
+               size === 'compact' ? 'space-y-1' : 'space-y-4'
              )}>
                {player.photoUrl ? (
                  <motion.div
@@ -157,7 +157,7 @@ const PlayerCard = React.forwardRef<HTMLDivElement, PlayerCardProps>(
                  >
                    <div className={cn(
                      "rounded-full bg-gradient-to-br from-white/30 via-white/10 to-transparent p-1 backdrop-blur-sm shadow-2xl",
-                     size === 'compact' ? 'w-20 h-20' : 'w-32 h-32'
+                     size === 'compact' ? 'w-14 h-14' : 'w-32 h-32'
                    )}>
                      <div className="w-full h-full rounded-full bg-gradient-to-br from-white/20 to-transparent p-1">
                        <img
@@ -173,12 +173,12 @@ const PlayerCard = React.forwardRef<HTMLDivElement, PlayerCardProps>(
                ) : (
                  <div className={cn(
                    "rounded-full bg-gradient-to-br from-white/30 via-white/10 to-transparent p-1 backdrop-blur-sm shadow-2xl",
-                   size === 'compact' ? 'w-20 h-20' : 'w-32 h-32'
+                   size === 'compact' ? 'w-14 h-14' : 'w-32 h-32'
                  )}>
                    <div className="w-full h-full rounded-full bg-gradient-to-br from-white/20 to-transparent flex items-center justify-center border border-white/20">
                      <span className={cn(
                        "font-black text-white/90 tracking-tight",
-                       size === 'compact' ? 'text-xl' : 'text-3xl'
+                       size === 'compact' ? 'text-sm' : 'text-3xl'
                      )}>
                        {player.name.split(' ').map(n => n[0]).join('')}
                      </span>
@@ -190,7 +190,7 @@ const PlayerCard = React.forwardRef<HTMLDivElement, PlayerCardProps>(
                <div className="text-center">
                  <h3 className={cn(
                    "text-white leading-tight tracking-normal drop-shadow-lg px-2",
-                   size === 'compact' ? 'text-sm font-bold' : 'text-xl font-semibold'
+                   size === 'compact' ? 'text-[10px] font-bold' : 'text-xl font-semibold'
                  )}>
                    {player.name}
                  </h3>
@@ -248,7 +248,7 @@ const PlayerCard = React.forwardRef<HTMLDivElement, PlayerCardProps>(
                 <div className="flex gap-3 relative z-10">
                   {onAddToLineup && (
                     <motion.button
-                      className="flex-1 bg-gradient-to-r from-gray-700 to-gray-800 hover:from-gray-600 hover:to-gray-700 text-white text-xs py-2 px-3 rounded-lg font-black uppercase tracking-wide backdrop-blur-sm border border-white/20 shadow-lg transition-all duration-200"
+                      className="flex-1 bg-gradient-to-r from-neutral-700 to-neutral-800 hover:from-neutral-600 hover:to-neutral-700 text-white text-xs py-2 px-3 rounded-lg font-black uppercase tracking-wide backdrop-blur-sm border border-white/20 shadow-lg transition-all duration-200"
                       whileHover={{ scale: 1.05, y: -2 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={(e) => {

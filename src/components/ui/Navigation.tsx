@@ -47,6 +47,39 @@ export function Navigation() {
     return () => authListener.subscription.unsubscribe()
   }, [])
 
+  // Set up real-time subscription for team changes
+  useEffect(() => {
+    if (!userId) return
+
+    console.log('Navigation: Setting up real-time subscription for user teams')
+    
+    // Subscribe to changes in user_teams table for this user
+    const teamsSubscription = supabase
+      .channel(`nav_user_teams_changes_${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'user_teams',
+          filter: `user_id=eq.${userId}`
+        },
+        (payload) => {
+          console.log('Navigation: Team change detected:', payload)
+          // Reload teams when any change is detected
+          loadUserTeams(userId)
+        }
+      )
+      .subscribe((status) => {
+        console.log('Navigation: Subscription status:', status)
+      })
+
+    return () => {
+      console.log('Navigation: Cleaning up real-time subscription')
+      supabase.removeChannel(teamsSubscription)
+    }
+  }, [userId])
+
   // Extract current team from URL
   useEffect(() => {
     if (pathname.includes('/dashboard/') && userTeams.length > 0) {
@@ -56,8 +89,9 @@ export function Navigation() {
     }
   }, [pathname, userTeams])
 
-  async function loadUserTeams(uid: string) {
+  const loadUserTeams = async (uid: string) => {
     try {
+      console.log('Navigation: Loading teams for user:', uid)
       const { data: teams, error } = await supabase
         .from('user_teams')
         .select('*')
@@ -66,15 +100,24 @@ export function Navigation() {
         .order('created_at', { ascending: true })
 
       if (error) throw error
+      console.log('Navigation: Teams loaded:', teams?.length || 0, teams)
       setUserTeams(teams || [])
     } catch (error) {
-      console.error('Error loading teams:', error)
+      console.error('Navigation: Error loading teams:', error)
     }
   }
 
   async function signOut() {
-    await supabase.auth.signOut()
-    router.push('/')
+    try {
+      console.log('Navigation: Signing out...')
+      await supabase.auth.signOut()
+      console.log('Navigation: Sign out successful')
+      router.push('/')
+    } catch (error) {
+      console.error('Navigation: Sign out error:', error)
+      // Still redirect even if there's an error
+      router.push('/')
+    }
   }
 
 
@@ -120,7 +163,7 @@ export function Navigation() {
               <>
                 {/* No Teams State */}
                 {userTeams.length === 0 && (
-                  <Link href="/teams">
+                  <Link href="/teams/create">
                     <Button variant="primary" size="sm">
                       Create Team
                     </Button>
