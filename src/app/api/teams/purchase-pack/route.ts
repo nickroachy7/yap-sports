@@ -22,8 +22,25 @@ const CARDS_PER_PACK = 5;
 
 export async function POST(req: NextRequest) {
   try {
+    console.log('=== PACK PURCHASE REQUEST STARTED ===');
     const json = await req.json();
-    const { packId, teamId, idempotencyKey } = BodySchema.parse(json);
+    console.log('Request body:', json);
+    
+    let packId, teamId, idempotencyKey;
+    try {
+      const parsed = BodySchema.parse(json);
+      packId = parsed.packId;
+      teamId = parsed.teamId;
+      idempotencyKey = parsed.idempotencyKey;
+      console.log('Validated params:', { packId, teamId, idempotencyKey });
+    } catch (validationError: any) {
+      console.error('Validation error:', validationError);
+      return NextResponse.json({ 
+        error: 'Invalid request parameters', 
+        details: validationError.message,
+        required: 'packId (uuid), teamId (uuid), idempotencyKey (string min 10 chars)'
+      }, { status: 400 });
+    }
 
     const authHeader = req.headers.get('authorization');
     if (!authHeader) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -91,8 +108,18 @@ export async function POST(req: NextRequest) {
 
     // Generate random cards from active players
     console.log('Generating random cards...');
-    const grantedCards = await generateRandomCards(CARDS_PER_PACK);
-    console.log('Generated cards:', grantedCards.length);
+    let grantedCards;
+    try {
+      grantedCards = await generateRandomCards(CARDS_PER_PACK);
+      console.log('Generated cards:', grantedCards.length);
+    } catch (cardGenError: any) {
+      console.error('Card generation error:', cardGenError);
+      return NextResponse.json({ 
+        error: 'Failed to generate cards', 
+        details: cardGenError.message,
+        hint: 'Check if cards and players tables exist'
+      }, { status: 500 });
+    }
     
     if (!grantedCards || grantedCards.length === 0) {
       console.error('No cards generated!');
