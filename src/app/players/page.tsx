@@ -2,6 +2,9 @@ import { Suspense } from 'react'
 import PlayersPageContent from './PlayersPageContent'
 import { LoadingSkeleton, Card, ContentContainer, StandardLayout } from '@/components/ui'
 
+// Force dynamic rendering for this page (required for useSearchParams)
+export const dynamic = 'force-dynamic'
+
 function PlayersPageLoading() {
   return (
     <StandardLayout>
