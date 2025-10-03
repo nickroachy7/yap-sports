@@ -46,6 +46,7 @@ export default function TeamDashboard() {
   const [currentTeam, setCurrentTeam] = useState<UserTeam | null>(null)
   const [activeTab, setActiveTab] = useState<TabType>('lineup')
   const [loading, setLoading] = useState(true)
+  const [dataLoading, setDataLoading] = useState(true) // For cards/lineup background loading
   const [userCards, setUserCards] = useState<UserCard[]>([])
   const [availableTokens, setAvailableTokens] = useState<any[]>([])
   const [message, setMessage] = useState<string | null>(null)
@@ -230,7 +231,7 @@ export default function TeamDashboard() {
     try {
       console.log('Loading user data for:', uid, 'teamId:', teamId)
       
-      // Load current team
+      // Load current team FIRST and show it immediately
       const { data: teams, error: teamsError } = await supabase
         .from('user_teams')
         .select('*')
@@ -250,29 +251,32 @@ export default function TeamDashboard() {
       
       console.log('Setting current team:', teams)
       setCurrentTeam(teams)
+      
+      // Show the dashboard immediately with team info
+      setLoading(false)
+      setDataLoading(true)
 
-      // Load team's cards, tokens, lineup, and packs
-      console.log('Loading team data...')
-      await Promise.all([
+      // Load everything else in the background (non-blocking)
+      console.log('Loading team data in background...')
+      
+      // Load lineup and week first (most important)
+      await loadTeamLineup(uid, teamId)
+      
+      // Then load everything else in parallel
+      const [_cards, _tokens, _packs, _userPacks, _trending] = await Promise.all([
         loadTeamCards(uid, teamId),
         loadTeamTokens(uid, teamId),
-        loadTeamLineup(uid, teamId),
         loadAvailablePacks(),
-        loadUserPacks()
+        loadUserPacks(),
+        fetchTrendingData()
       ])
       
       console.log('All team data loaded successfully')
-      
-      // After cards are loaded, fetch trending data and game stats
-      await fetchTrendingData()
-      // Note: userCards will be populated after loadTeamCards completes
-      // We'll fetch game stats in getCollectionItems when we have the actual player IDs
+      setDataLoading(false)
       
     } catch (error) {
       console.error('Error loading user data:', error)
       setMessage('Failed to load team data: ' + (error as Error).message)
-    } finally {
-      console.log('Setting loading to false')
       setLoading(false)
     }
   }
@@ -1330,34 +1334,68 @@ export default function TeamDashboard() {
       
       {/* Lineup Tab - Available Players Edge to Edge */}
       {activeTab === 'lineup' && currentWeek && (
-        <div className="flex-1 overflow-auto">
-          <LineupBuilder
-            availableCards={userCards}
-            lineupSlots={lineupSlots}
-            availableTokens={availableTokens}
-            playerSeasonStats={playerSeasonStats}
-            trendingData={trendingData}
-            playerGameStats={playerGameStats}
-            onSlotChange={handleLineupSlotChange}
-            onTokenApply={handleTokenApply}
-            onPlayerClick={handlePlayerClick}
-            loading={lineupLoading}
-            title={`Week ${currentWeek.week_number} Lineup`}
-            showAvailableCards={true}
-            showLineupGrid={false}
-            showSubmitButton={false}
-            compact={true}
-            selectedSlot={lineupSelectedSlot}
-            onSelectedSlotChange={setLineupSelectedSlot}
-            slotFilter={lineupSlotFilter}
-            onSlotFilterChange={setLineupSlotFilter}
-          />
-        </div>
+        dataLoading ? (
+          <ContentContainer>
+            <Card className="p-6">
+              <div className="text-center py-8">
+                <div className="text-lg font-semibold text-white mb-2">Loading your lineup...</div>
+                <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
+                  Fetching player cards and stats
+                </div>
+                <div className="mt-6 space-y-3">
+                  {[...Array(7)].map((_, i) => (
+                    <div key={i} className="h-20 rounded-lg animate-pulse" style={{backgroundColor: 'var(--color-gunmetal)'}} />
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </ContentContainer>
+        ) : (
+          <div className="flex-1 overflow-auto">
+            <LineupBuilder
+              availableCards={userCards}
+              lineupSlots={lineupSlots}
+              availableTokens={availableTokens}
+              playerSeasonStats={playerSeasonStats}
+              trendingData={trendingData}
+              playerGameStats={playerGameStats}
+              onSlotChange={handleLineupSlotChange}
+              onTokenApply={handleTokenApply}
+              onPlayerClick={handlePlayerClick}
+              loading={lineupLoading}
+              title={`Week ${currentWeek.week_number} Lineup`}
+              showAvailableCards={true}
+              showLineupGrid={false}
+              showSubmitButton={false}
+              compact={true}
+              selectedSlot={lineupSelectedSlot}
+              onSelectedSlotChange={setLineupSelectedSlot}
+              slotFilter={lineupSlotFilter}
+              onSlotFilterChange={setLineupSlotFilter}
+            />
+          </div>
+        )
       )}
       
       {/* Collection Tab - Edge to Edge (no ContentContainer) */}
       {activeTab === 'collection' && (
-        userCards.length === 0 && availableTokens.length === 0 ? (
+        dataLoading ? (
+          <ContentContainer>
+            <Card className="p-6">
+              <div className="text-center py-8">
+                <div className="text-lg font-semibold text-white mb-2">Loading your collection...</div>
+                <div className="text-sm" style={{color: 'var(--color-text-secondary)'}}>
+                  Fetching player cards and tokens
+                </div>
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[...Array(6)].map((_, i) => (
+                    <div key={i} className="h-32 rounded-lg animate-pulse" style={{backgroundColor: 'var(--color-gunmetal)'}} />
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </ContentContainer>
+        ) : userCards.length === 0 && availableTokens.length === 0 ? (
           <ContentContainer>
             <Card className="p-6">
               <div className="text-center py-6">
