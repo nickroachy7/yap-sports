@@ -16,13 +16,30 @@ export async function POST(req: NextRequest) {
     }
     const userId = user.id;
 
-    // Get some random cards from each position to create a balanced roster
+    // Get user's active team
+    const { data: team, error: teamError } = await supabaseAdmin
+      .from('user_teams')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('active', true)
+      .single();
+
+    if (teamError || !team) {
+      return NextResponse.json({ error: 'No active team found' }, { status: 400 });
+    }
+    const teamId = team.id;
+
+    // Get some random cards from each position to create a balanced roster (only playable positions and active players)
+    // Note: Database stores full position names, not abbreviations
+    const PLAYABLE_POSITIONS = ['Quarterback', 'Running Back', 'Wide Receiver', 'Tight End'];
     const { data: cards, error: cardsError } = await supabaseAdmin
       .from('cards')
       .select(`
         id, rarity, base_contracts, base_sell_value,
-        players (position, first_name, last_name, team)
+        players!inner (position, first_name, last_name, team, active)
       `)
+      .eq('players.active', true)
+      .in('players.position', PLAYABLE_POSITIONS)
       .limit(50);
 
     if (cardsError || !cards) {
@@ -39,10 +56,10 @@ export async function POST(req: NextRequest) {
 
     // Grant cards for a complete roster
     const cardsToGrant = [
-      ...(cardsByPosition['QB']?.slice(0, 2) || []),  // 2 QBs
-      ...(cardsByPosition['RB']?.slice(0, 4) || []),  // 4 RBs  
-      ...(cardsByPosition['WR']?.slice(0, 4) || []),  // 4 WRs
-      ...(cardsByPosition['TE']?.slice(0, 2) || []),  // 2 TEs
+      ...(cardsByPosition['Quarterback']?.slice(0, 2) || []),  // 2 QBs
+      ...(cardsByPosition['Running Back']?.slice(0, 4) || []),  // 4 RBs  
+      ...(cardsByPosition['Wide Receiver']?.slice(0, 4) || []),  // 4 WRs
+      ...(cardsByPosition['Tight End']?.slice(0, 2) || []),  // 2 TEs
     ];
 
     const grantedCards = [];
@@ -58,6 +75,7 @@ export async function POST(req: NextRequest) {
         .from('user_cards')
         .insert({
           user_id: userId,
+          team_id: teamId,
           card_id: card.id,
           remaining_contracts: card.base_contracts,
           current_sell_value: sellValue,

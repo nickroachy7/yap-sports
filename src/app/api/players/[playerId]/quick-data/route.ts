@@ -27,22 +27,24 @@ export async function GET(
       playerResult,
       statsResult,
       seasonResult,
-      nextGameResult
+      allGamesResult,
+      trendingResult
     ] = await Promise.all([
       // 1. Get player profile
       supabaseAdmin
         .from('players')
-        .select('id, first_name, last_name, position, team, jersey_number, height, weight, age, college, years_pro, external_id')
+        .select('id, first_name, last_name, position, team, team_id, jersey_number, height, weight, age, college, years_pro, external_id')
         .eq('id', playerId)
         .single(),
 
-      // 2. Get all game stats (we'll filter by 2025 season after join)
+      // 2. Get all game stats for this player
       supabaseAdmin
         .from('player_game_stats')
         .select(`
           id,
           stat_json,
           finalized,
+          sports_event_id,
           sports_event:sports_events (
             id,
             home_team,
@@ -62,13 +64,21 @@ export async function GET(
         .eq('league', 'NFL')
         .single(),
 
-      // 4. Get next upcoming game (after current date)
+      // 4. Get ALL sports events for the 2025 season (we'll filter by team after)
       supabaseAdmin
         .from('sports_events')
-        .select('id, home_team, away_team, starts_at, status, week_number')
-        .gte('starts_at', currentDate)
-        .order('starts_at', { ascending: true })
-        .limit(50) // Get more games to find player's team
+        .select('id, home_team, away_team, home_team_id, away_team_id, starts_at, status, week_number, week_id')
+        .gte('starts_at', `${currentSeasonYear}-08-01`)
+        .lte('starts_at', `${currentSeasonYear + 1}-02-28`)
+        .order('starts_at', { ascending: true }),
+
+      // 5. Get trending data from cache
+      supabaseAdmin
+        .from('player_trending_cache')
+        .select('trend_direction, trend_strength, season_avg, last_3_avg, games_played')
+        .eq('player_id', playerId)
+        .eq('season_year', currentSeasonYear)
+        .single()
     ]);
 
     if (playerResult.error || !playerResult.data) {
@@ -80,33 +90,78 @@ export async function GET(
 
     const player = playerResult.data;
     const allStatsRaw = statsResult.data || [];
+    const allGames = allGamesResult.data || [];
+    const trendingData = trendingResult.data || null;
+    
+    // Fetch position rank and projected points from season-stats API
+    let position_rank = null;
+    let projected_points = null;
+    try {
+      const seasonStatsResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/players/season-stats?season=${currentSeasonYear}`);
+      if (seasonStatsResponse.ok) {
+        const seasonStatsData = await seasonStatsResponse.json();
+        const playerSeasonStats = seasonStatsData.stats?.find((s: any) => s.player_id === playerId);
+        if (playerSeasonStats) {
+          position_rank = playerSeasonStats.position_rank;
+          projected_points = playerSeasonStats.avg_fantasy_points; // Use avg as projection
+        }
+      }
+    } catch (err) {
+      console.log('Could not fetch season stats:', err);
+    }
+    
+    // Format trending data
+    let trending = null;
+    if (trendingData) {
+      trending = {
+        direction: trendingData.trend_direction,
+        strength: trendingData.trend_strength,
+        display: trendingData.trend_direction === 'up' 
+          ? `📈 +${Math.abs(trendingData.trend_strength)}%`
+          : trendingData.trend_direction === 'down'
+          ? `📉 ${trendingData.trend_strength}%`
+          : '—'
+      };
+    }
 
-    // Filter to ONLY 2025 regular season games (August 2025 onwards to exclude playoffs from previous season)
-    const allStats = allStatsRaw.filter(stat => {
-      const game = Array.isArray(stat.sports_event) ? stat.sports_event[0] : stat.sports_event;
-      if (!game || !game.starts_at) return false;
-      
-      const gameDate = new Date(game.starts_at);
-      const seasonStartDate = new Date(`${currentSeasonYear}-08-01`); // NFL season starts in August
-      const seasonEndDate = new Date(`${currentSeasonYear + 1}-02-28`); // Ends in February next year
-      
-      return gameDate >= seasonStartDate && gameDate <= seasonEndDate;
+    // Filter games to ONLY those where this player's team is playing
+    const teamGames = allGames.filter(game => {
+      // Match by team abbreviation OR team_id
+      const matchesHome = game.home_team === player.team || (player.team_id && game.home_team_id === player.team_id);
+      const matchesAway = game.away_team === player.team || (player.team_id && game.away_team_id === player.team_id);
+      return matchesHome || matchesAway;
     });
 
-    console.log(`Found ${allStats.length} games from ${currentSeasonYear} season (filtered from ${allStatsRaw.length} total) for ${player.first_name} ${player.last_name}`);
+    console.log(`Found ${teamGames.length} team games for ${player.team} in ${currentSeasonYear} season`);
 
-    // Calculate season stats from 2025 games only
-    const seasonStats = calculateSeasonStats(allStats, player.position);
+    // Create a map of player stats by game ID for quick lookup
+    const statsByGameId = new Map();
+    allStatsRaw.forEach(stat => {
+      const gameId = stat.sports_event_id;
+      if (gameId) {
+        statsByGameId.set(gameId, stat);
+      }
+    });
 
-    // Find next game for this player's team (after current date)
-    const upcomingGames = nextGameResult.data || [];
-    const nextGame = upcomingGames.find(game => 
-      game.home_team === player.team || game.away_team === player.team
-    );
+    // Get stats only for games where player actually played (for season stats calculation)
+    const gamesWithStats = allStatsRaw.filter(stat => {
+      const game = Array.isArray(stat.sports_event) ? stat.sports_event[0] : stat.sports_event;
+      return game && game.starts_at;
+    });
+
+    console.log(`Player has stats for ${gamesWithStats.length} games`);
+
+    // Calculate season stats from games where player has stats
+    const seasonStats = calculateSeasonStats(gamesWithStats, player.position);
+
+    // Find next upcoming game for this player's team
+    const now = new Date();
+    const upcomingTeamGames = teamGames.filter(game => new Date(game.starts_at) > now);
+    const nextGame = upcomingTeamGames.length > 0 ? upcomingTeamGames[0] : null;
 
     let nextMatchup = null;
     if (nextGame) {
-      const isHome = nextGame.home_team === player.team;
+      const isHome = nextGame.home_team === player.team || nextGame.home_team_id === player.team_id;
       const opponent = isHome ? nextGame.away_team : nextGame.home_team;
       const gameDate = new Date(nextGame.starts_at);
       
@@ -116,20 +171,17 @@ export async function GET(
         time: gameDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
         is_home: isHome,
         opponent_rank_vs_position: Math.floor(Math.random() * 20) + 10, // TODO: Calculate from defensive stats
-        projected_points: seasonStats.avg_points_per_game || 0
+        projected_points: projected_points || seasonStats.avg_points_per_game || 0
       };
     }
 
-    // Build game log entries (2025 season only, sorted by week)
-    const gameLog = allStats.map(stat => {
-      const game = Array.isArray(stat.sports_event) ? stat.sports_event[0] : stat.sports_event;
-      if (!game) return null;
-
-      const isHome = game.home_team === player.team;
+    // Build FULL game log - ALL team games, showing stats when available or DNP/Upcoming when not
+    const gameLog = teamGames.map(game => {
+      const isHome = game.home_team === player.team || game.home_team_id === player.team_id;
       const opponent = isHome ? game.away_team : game.home_team;
       const gameDate = new Date(game.starts_at);
-      const now = new Date();
 
+      // Determine game status
       let gameStatus: 'upcoming' | 'live' | 'completed' = 'upcoming';
       if (game.status === 'final') {
         gameStatus = 'completed';
@@ -139,19 +191,38 @@ export async function GET(
         gameStatus = 'completed';
       }
 
+      // Check if player has stats for this game
+      const playerStat = statsByGameId.get(game.id);
+      
+      let actualPoints = undefined;
+      let playerStats = null;
+      let didNotPlay = false;
+
+      if (playerStat && playerStat.stat_json) {
+        // Player has stats for this game
+        actualPoints = playerStat.stat_json.fantasy_points || calculateFantasyPoints(playerStat.stat_json);
+        playerStats = extractPositionStats(playerStat.stat_json, player.position);
+      } else if (gameStatus === 'completed') {
+        // Game is completed but player has no stats = DNP (Did Not Play)
+        didNotPlay = true;
+        actualPoints = 0;
+      }
+      // else: upcoming game, no stats expected
+
       return {
-        id: stat.id,
+        id: `${game.id}-${player.id}`,
         week: game.week_number || 0,
         opponent: opponent || 'TBD',
         date: game.starts_at.split('T')[0],
         time: gameDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
         projection: seasonStats.avg_points_per_game || 0,
-        actualPoints: stat.stat_json?.fantasy_points || calculateFantasyPoints(stat.stat_json),
+        actualPoints,
         isHome,
         gameStatus,
-        playerStats: extractPositionStats(stat.stat_json, player.position)
+        playerStats,
+        didNotPlay // Flag to indicate DNP vs upcoming
       };
-    }).filter(Boolean).sort((a, b) => a.week - b.week); // Sort by week ascending
+    }).sort((a, b) => a.week - b.week); // Sort by week ascending
 
     // Return everything in one response
     return NextResponse.json({
@@ -168,6 +239,9 @@ export async function GET(
         age: player.age || null,
         college: player.college || null,
         years_pro: player.years_pro || null,
+        position_rank: position_rank,
+        projected_points: projected_points,
+        trending: trending,
         stats: seasonStats,
         nextMatchup
       },
@@ -175,6 +249,8 @@ export async function GET(
       summary: {
         total_games: gameLog.length,
         completed_games: gameLog.filter(g => g.gameStatus === 'completed').length,
+        games_played: gameLog.filter(g => g.gameStatus === 'completed' && !g.didNotPlay).length,
+        dnp_games: gameLog.filter(g => g.didNotPlay).length,
         upcoming_games: gameLog.filter(g => g.gameStatus === 'upcoming').length
       }
     });

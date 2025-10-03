@@ -6,8 +6,9 @@ import { createSupabaseBrowserClient } from '@/lib/supabaseClient'
 import { useAuth } from '@/contexts/AuthContext'
 import { Card, Button, LineupBuilder, PlayerModal, CollectionListView, SectionHeader, StandardLayout, ContentContainer, Select, SearchInput } from '@/components/ui'
 import { UserCard, LineupSlot } from '@/components/ui/LineupBuilder'
-import type { CollectionItem } from '@/components/ui'
+import type { CollectionItem, Tab, HeaderAction } from '@/components/ui'
 import { Trophy, Coins, LayoutGrid, Store, BarChart3, Settings, Bell, Zap, Target, ClipboardList, Package, Gift } from 'lucide-react'
+import { usePageHeader } from '@/hooks/usePageHeader'
 
 type UserTeam = {
   id: string
@@ -24,6 +25,17 @@ type Week = {
 }
 
 type TabType = 'lineup' | 'collection' | 'store' | 'activity'
+
+// Helper to convert full position names to abbreviations
+const positionToAbbr = (position: string): string => {
+  const mapping: Record<string, string> = {
+    'Quarterback': 'QB',
+    'Running Back': 'RB',
+    'Wide Receiver': 'WR',
+    'Tight End': 'TE'
+  }
+  return mapping[position] || position
+}
 
 export default function TeamDashboard() {
   const params = useParams()
@@ -46,6 +58,7 @@ export default function TeamDashboard() {
   const [availablePacks, setAvailablePacks] = useState<any[]>([])
   const [userPacks, setUserPacks] = useState<any[]>([])
   const [packLoading, setPackLoading] = useState(false)
+  const [playerSeasonStats, setPlayerSeasonStats] = useState<Map<string, any>>(new Map())
   
   // Shared lineup state - for syncing between multiple LineupBuilder instances
   const [lineupSelectedSlot, setLineupSelectedSlot] = useState<string | null>(null)
@@ -57,8 +70,114 @@ export default function TeamDashboard() {
   const [collectionPositionFilter, setCollectionPositionFilter] = useState('all')
   const [collectionSortBy, setCollectionSortBy] = useState<'name' | 'fpts' | 'rarity'>('fpts')
   const [collectionSortOrder, setCollectionSortOrder] = useState<'asc' | 'desc'>('desc')
+  
+  // Trending data and position ranks
+  const [trendingData, setTrendingData] = useState<Map<string, { direction: 'up' | 'down' | 'stable', strength: number, gamesPlayed: number }>>(new Map())
+  const [playerGameStats, setPlayerGameStats] = useState<Map<string, { avg: number, best: number, last: number }>>(new Map())
 
   const teamId = params.teamId as string
+
+  // Prepare header configuration - MUST be called at top level (Rules of Hooks)
+  // We'll update it via useEffect when values change
+  const tabs: Tab[] = [
+    { id: 'lineup', label: 'Lineup', icon: Trophy, badge: null },
+    { id: 'collection', label: 'Collection', icon: LayoutGrid, badge: userCards.length + availableTokens.length },
+    { id: 'store', label: 'Store', icon: Store, badge: userPacks.filter(p => p.status === 'unopened').length || null },
+    { id: 'activity', label: 'Activity', icon: ClipboardList, badge: null }
+  ]
+
+  const headerActions: HeaderAction[] = [
+    {
+      icon: BarChart3,
+      label: 'Statistics',
+      onClick: () => console.log('Statistics clicked')
+    },
+    {
+      icon: Settings,
+      label: 'Settings',
+      onClick: () => console.log('Settings clicked')
+    },
+    {
+      icon: Bell,
+      label: 'Notifications',
+      onClick: () => console.log('Notifications clicked'),
+      badge: userPacks.filter(p => p.status === 'unopened').length > 0
+    }
+  ]
+
+  const collectionFilterContent = activeTab === 'collection' ? (
+    <div className="flex items-center gap-3">
+      <div className="flex-1">
+        <SearchInput
+          placeholder="Search by player name or token..."
+          value={collectionSearchTerm}
+          onChange={(e) => setCollectionSearchTerm(e.target.value)}
+          onClear={() => setCollectionSearchTerm('')}
+        />
+      </div>
+      <div className="w-48">
+        <Select
+          value={collectionTypeFilter}
+          onChange={(e) => setCollectionTypeFilter(e.target.value as 'all' | 'player' | 'token')}
+          options={[
+            { value: 'all', label: 'All Items' },
+            { value: 'player', label: 'Players' },
+            { value: 'token', label: 'Tokens' }
+          ]}
+          placeholder="All Items"
+        />
+      </div>
+      <div className="w-48">
+        <Select
+          value={collectionPositionFilter}
+          onChange={(e) => setCollectionPositionFilter(e.target.value)}
+          options={[
+            { value: 'all', label: 'All Positions' },
+            { value: 'QB', label: 'QB' },
+            { value: 'RB', label: 'RB' },
+            { value: 'WR', label: 'WR' },
+            { value: 'TE', label: 'TE' }
+          ]}
+          placeholder="All Positions"
+        />
+      </div>
+      <div className="w-40">
+        <Select
+          value={collectionSortBy}
+          onChange={(e) => setCollectionSortBy(e.target.value as 'name' | 'fpts' | 'rarity')}
+          options={[
+            { value: 'name', label: 'Name' },
+            { value: 'fpts', label: 'Fantasy Points' },
+            { value: 'rarity', label: 'Rarity' }
+          ]}
+          placeholder="Sort By"
+        />
+      </div>
+      <div className="w-32">
+        <Select
+          value={collectionSortOrder}
+          onChange={(e) => setCollectionSortOrder(e.target.value as 'asc' | 'desc')}
+          options={[
+            { value: 'asc', label: collectionSortBy === 'name' ? 'A → Z' : 'Low → High' },
+            { value: 'desc', label: collectionSortBy === 'name' ? 'Z → A' : 'High → Low' }
+          ]}
+        />
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          setCollectionSearchTerm('')
+          setCollectionTypeFilter('all')
+          setCollectionPositionFilter('all')
+          setCollectionSortBy('fpts')
+          setCollectionSortOrder('desc')
+        }}
+      >
+        Reset Filters
+      </Button>
+    </div>
+  ) : null
 
   // Load team data when user is authenticated
   useEffect(() => {
@@ -144,6 +263,11 @@ export default function TeamDashboard() {
       
       console.log('All team data loaded successfully')
       
+      // After cards are loaded, fetch trending data and game stats
+      await fetchTrendingData()
+      // Note: userCards will be populated after loadTeamCards completes
+      // We'll fetch game stats in getCollectionItems when we have the actual player IDs
+      
     } catch (error) {
       console.error('Error loading user data:', error)
       setMessage('Failed to load team data: ' + (error as Error).message)
@@ -169,7 +293,8 @@ export default function TeamDashboard() {
               first_name,
               last_name,
               position,
-              team
+              team,
+              active
             )
           )
         `)
@@ -179,8 +304,15 @@ export default function TeamDashboard() {
 
       if (cardsError) throw cardsError
 
+      // Filter out cards for inactive players (client-side for reliability)
+      const activePlayerCards = (cardsData || []).filter((card: any) => {
+        return card.cards?.players?.active === true
+      })
+
+      console.log(`Loaded ${cardsData?.length || 0} total cards, ${activePlayerCards.length} with active players`)
+
       // Transform to UserCard format with mock projected points
-      const transformedCards: UserCard[] = (cardsData || []).map((card: any) => ({
+      const transformedCards: UserCard[] = activePlayerCards.map((card: any) => ({
         id: card.id,
         remaining_contracts: card.remaining_contracts,
         current_sell_value: card.current_sell_value,
@@ -188,7 +320,7 @@ export default function TeamDashboard() {
           id: card.cards.players.id,
           first_name: card.cards.players.first_name,
           last_name: card.cards.players.last_name,
-          position: card.cards.players.position,
+          position: positionToAbbr(card.cards.players.position), // Convert to abbreviation
           team: card.cards.players.team
         },
         rarity: card.cards.rarity as 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary',
@@ -196,8 +328,150 @@ export default function TeamDashboard() {
       }))
 
       setUserCards(transformedCards)
+      
+      const playerIds = transformedCards.map(c => c.player.id)
+      
+      // Load season stats and game stats for these players
+      await Promise.all([
+        loadPlayerSeasonStats(playerIds),
+        fetchGameStats(playerIds)
+      ])
     } catch (error) {
       console.error('Error loading team cards:', error)
+    }
+  }
+  
+  async function loadPlayerSeasonStats(playerIds: string[]) {
+    if (playerIds.length === 0) {
+      console.log('⚠️ No player IDs to fetch stats for')
+      return
+    }
+    
+    try {
+      console.log(`📊 Fetching season stats for ${playerIds.length} players...`, playerIds.slice(0, 3))
+      const response = await fetch('/api/players/season-stats?season=2025')
+      const data = await response.json()
+      
+      console.log('📊 Season stats response:', { 
+        success: data.success, 
+        playerCount: data.player_count,
+        hasStats: !!data.stats 
+      })
+      
+      if (data.success && data.stats) {
+        const statsMap = new Map<string, any>()
+        
+        data.stats.forEach((stat: any) => {
+          if (playerIds.includes(stat.player_id)) {
+            statsMap.set(stat.player_id, stat)
+          }
+        })
+        
+        setPlayerSeasonStats(statsMap)
+      }
+    } catch (error) {
+      console.error('❌ Error loading player season stats:', error)
+    }
+  }
+
+  // Fetch trending data for players
+  async function fetchTrendingData() {
+    try {
+      console.log('📈 Fetching trending data...')
+      const response = await fetch('/api/players/trending-cache?season=2025')
+      if (!response.ok) {
+        console.error('Failed to fetch trending data')
+        return
+      }
+
+      const data = await response.json()
+      
+      if (data.success && data.trends) {
+        const trendsMap = new Map<string, { direction: 'up' | 'down' | 'stable', strength: number, gamesPlayed: number }>()
+        
+        // data.trends is an object/map, not an array
+        Object.entries(data.trends).forEach(([playerId, trend]: [string, any]) => {
+          trendsMap.set(playerId, {
+            direction: trend.direction,
+            strength: trend.strength,
+            gamesPlayed: trend.gamesPlayed
+          })
+        })
+        
+        setTrendingData(trendsMap)
+      }
+    } catch (error) {
+      console.error('Error fetching trending data:', error)
+    }
+  }
+
+  // Fetch game stats (AVG, BEST, LST) for players
+  async function fetchGameStats(playerIds: string[]) {
+    if (playerIds.length === 0) return
+    
+    try {
+      console.log('📊 Fetching game stats for collection players...')
+      
+      // Fetch all game stats for these players
+      const { data: gameStats, error } = await supabase
+        .from('player_game_stats')
+        .select('player_id, stat_json')
+        .in('player_id', playerIds)
+        .order('game_date', { ascending: false })
+      
+      if (error) throw error
+      
+      // Calculate AVG, BEST, LST for each player
+      const statsMap = new Map<string, { points: number[] }>()
+      
+      // Helper to calculate fantasy points from stat_json
+      const calculateFantasyPoints = (statJson: any): number => {
+        if (!statJson) return 0
+        
+        const passTD = parseFloat(statJson.passing_touchdowns || 0)
+        const passYds = parseFloat(statJson.passing_yards || 0)
+        const passInt = parseFloat(statJson.passing_interceptions || 0)
+        const rushTD = parseFloat(statJson.rushing_touchdowns || 0)
+        const rushYds = parseFloat(statJson.rushing_yards || 0)
+        const recTD = parseFloat(statJson.receiving_touchdowns || 0)
+        const rec = parseFloat(statJson.receptions || 0)
+        const recYds = parseFloat(statJson.receiving_yards || 0)
+        const fumLost = parseFloat(statJson.fumbles_lost || 0)
+        const twoPoint = parseFloat(statJson.two_point_conversions || 0)
+        
+        return (passTD * 4) + (passYds * 0.04) - (passInt * 2) +
+               (rushTD * 6) + (rushYds * 0.1) +
+               (recTD * 6) + (rec * 1) + (recYds * 0.1) -
+               (fumLost * 2) + (twoPoint * 2)
+      }
+      
+      // Group by player and calculate points
+      gameStats?.forEach((stat: any) => {
+        const points = calculateFantasyPoints(stat.stat_json)
+        if (!statsMap.has(stat.player_id)) {
+          statsMap.set(stat.player_id, { points: [] })
+        }
+        statsMap.get(stat.player_id)!.points.push(points)
+      })
+      
+      // Calculate AVG, BEST, LST
+      const playerGameStatsMap = new Map<string, { avg: number, best: number, last: number }>()
+      
+      statsMap.forEach((data, playerId) => {
+        const points = data.points
+        if (points.length === 0) {
+          playerGameStatsMap.set(playerId, { avg: 0, best: 0, last: 0 })
+        } else {
+          const avg = points.reduce((sum, p) => sum + p, 0) / points.length
+          const best = Math.max(...points)
+          const last = points[0] // Most recent game
+          playerGameStatsMap.set(playerId, { avg, best, last })
+        }
+      })
+      
+      setPlayerGameStats(playerGameStatsMap)
+    } catch (error) {
+      console.error('Error fetching game stats:', error)
     }
   }
 
@@ -285,13 +559,137 @@ export default function TeamDashboard() {
         { slot: 'FLEX', label: 'Flex (RB/WR/TE)', positions: ['RB', 'WR', 'TE'] },
       ]
 
-      // Initialize lineup slots (for now, just empty slots)
+      // Try to load existing lineup for this week
+      const { data: existingLineup, error: lineupError } = await supabase
+        .from('lineups')
+        .select(`
+          id,
+          status,
+          lineup_slots (
+            id,
+            slot,
+            user_card_id,
+            applied_token_id,
+            user_cards (
+              id,
+              remaining_contracts,
+              current_sell_value,
+              cards (
+                id,
+                rarity,
+                players (
+                  id,
+                  first_name,
+                  last_name,
+                  position,
+                  team
+                )
+              )
+            )
+          )
+        `)
+        .eq('team_id', teamId)
+        .eq('week_id', week.id)
+        .maybeSingle()
+
+      // Create a map of existing lineup slots
+      // Database stores generic positions (RB, WR) but we need specific slots (RB1, RB2, WR1, WR2)
+      const existingSlotMap = new Map()
+      
+      if (existingLineup && existingLineup.lineup_slots) {
+        // Group cards by their database slot type
+        const slotGroups: Record<string, any[]> = {}
+        
+        existingLineup.lineup_slots.forEach((ls: any) => {
+          if (ls.user_card_id && ls.user_cards) {
+            if (!slotGroups[ls.slot]) {
+              slotGroups[ls.slot] = []
+            }
+            slotGroups[ls.slot].push(ls)
+          }
+        })
+        
+        // Map generic positions to specific slots
+        const rbSlots = ['RB1', 'RB2']
+        const wrSlots = ['WR1', 'WR2']
+        
+        // Assign RBs to RB1, RB2
+        if (slotGroups['RB']) {
+          slotGroups['RB'].forEach((ls: any, index: number) => {
+            if (index < rbSlots.length) {
+              const card = ls.user_cards
+              existingSlotMap.set(rbSlots[index], {
+                id: card.id,
+                remaining_contracts: card.remaining_contracts,
+                current_sell_value: card.current_sell_value,
+                player: {
+                  id: card.cards.players.id,
+                  first_name: card.cards.players.first_name,
+                  last_name: card.cards.players.last_name,
+                  position: positionToAbbr(card.cards.players.position),
+                  team: card.cards.players.team
+                },
+                rarity: card.cards.rarity,
+                projected_points: Math.random() * 20 + 5
+              })
+            }
+          })
+        }
+        
+        // Assign WRs to WR1, WR2
+        if (slotGroups['WR']) {
+          slotGroups['WR'].forEach((ls: any, index: number) => {
+            if (index < wrSlots.length) {
+              const card = ls.user_cards
+              existingSlotMap.set(wrSlots[index], {
+                id: card.id,
+                remaining_contracts: card.remaining_contracts,
+                current_sell_value: card.current_sell_value,
+                player: {
+                  id: card.cards.players.id,
+                  first_name: card.cards.players.first_name,
+                  last_name: card.cards.players.last_name,
+                  position: positionToAbbr(card.cards.players.position),
+                  team: card.cards.players.team
+                },
+                rarity: card.cards.rarity,
+                projected_points: Math.random() * 20 + 5
+              })
+            }
+          })
+        }
+        
+        // Handle single-slot positions (QB, TE, FLEX)
+        const singleSlots = ['QB', 'TE', 'FLEX']
+        singleSlots.forEach(slot => {
+          if (slotGroups[slot] && slotGroups[slot][0]) {
+            const ls = slotGroups[slot][0]
+            const card = ls.user_cards
+            existingSlotMap.set(slot, {
+              id: card.id,
+              remaining_contracts: card.remaining_contracts,
+              current_sell_value: card.current_sell_value,
+              player: {
+                id: card.cards.players.id,
+                first_name: card.cards.players.first_name,
+                last_name: card.cards.players.last_name,
+                position: positionToAbbr(card.cards.players.position),
+                team: card.cards.players.team
+              },
+              rarity: card.cards.rarity,
+              projected_points: Math.random() * 20 + 5
+            })
+          }
+        })
+      }
+
+      // Initialize lineup slots with existing data or empty
       const slots: LineupSlot[] = positionSlots.map(pos => ({
         id: `slot-${pos.slot}`,
         slot: pos.slot,
         label: pos.label,
         positions: pos.positions,
-        user_card: undefined
+        user_card: existingSlotMap.get(pos.slot)
       }))
 
       setLineupSlots(slots)
@@ -303,24 +701,74 @@ export default function TeamDashboard() {
 
   // Handle lineup slot changes
   const handleLineupSlotChange = async (slotId: string, userCard: UserCard | null) => {
+    if (!currentWeek || !currentTeam) return
+    
     try {
       setLineupLoading(true)
 
-      // Update local state
+      // Update local state first for immediate feedback
       setLineupSlots(prev => 
         prev.map(slot => 
           slot.slot === slotId ? { ...slot, user_card: userCard || undefined } : slot
         )
       )
 
+      // Save to database
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Not authenticated')
+
+      // Build complete lineup state for API (send all slots including empty ones)
+      const allSlots = lineupSlots.map(slot => {
+        const slotData: any = {
+          slot: slot.slot,
+        };
+        
+        // Only include user_card_id if it exists
+        const cardId = slot.slot === slotId ? userCard?.id : slot.user_card?.id;
+        if (cardId) {
+          slotData.user_card_id = cardId;
+        }
+        
+        // Only include applied_token_id if it exists
+        if (slot.applied_token?.id) {
+          slotData.applied_token_id = slot.applied_token.id;
+        }
+        
+        return slotData;
+      })
+
+      const response = await fetch('/api/lineup/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          weekId: currentWeek.id,
+          teamId: currentTeam.id,
+          slots: allSlots
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to save lineup')
+      }
+
       setMessage(userCard 
-        ? `Added ${userCard.player.first_name} ${userCard.player.last_name} to ${slotId}` 
-        : `Removed player from ${slotId}`
+        ? `✅ Added ${userCard.player.first_name} ${userCard.player.last_name} to ${slotId}` 
+        : `✅ Removed player from ${slotId}`
       )
 
     } catch (error) {
       console.error('Error updating lineup slot:', error)
-      setMessage('Failed to update lineup: ' + (error as Error).message)
+      setMessage('❌ Failed to update lineup: ' + (error as Error).message)
+      
+      // Reload lineup to restore correct state
+      if (user?.id) {
+        await loadTeamLineup(user.id, teamId)
+      }
     } finally {
       setLineupLoading(false)
     }
@@ -415,30 +863,47 @@ export default function TeamDashboard() {
 
   // Transform UserCard data to CollectionItem format for players  
   const getPlayerListItems = () => {
-    return userCards.map(card => ({
-      id: card.id, // Use the card's unique ID, not the player's ID
-      name: `${card.player.first_name} ${card.player.last_name}`,
-      position: card.player.position,
-      team: card.player.team,
-      gameInfo: 'Next game info', // Could be populated with real game data
-      stats: {
-        fpts: card.projected_points || 0,
-        proj: card.projected_points || 0,
-        snp: Math.round(Math.random() * 100), // Mock data
-        tar: Math.round(Math.random() * 10),
-        rec: Math.round(Math.random() * 8),
-        yd: Math.round(Math.random() * 100),
-        ypt: Math.round(Math.random() * 10),
-        ypc: Math.round(Math.random() * 15),
-        td: Math.round(Math.random() * 3),
-        fum: Math.round(Math.random() * 2),
-        lost: Math.round(Math.random() * 1)
-      },
-      rarity: card.rarity || 'common',
-      contractsRemaining: card.remaining_contracts,
-      currentSellValue: card.current_sell_value,
-      injuryStatus: 'healthy' as const
-    }))
+    return userCards.map(card => {
+      const seasonStats = playerSeasonStats.get(card.player.id)
+      
+      // Build game info with position rank
+      let gameInfo = 'No stats'
+      if (seasonStats && seasonStats.games_played > 0) {
+        const rankInfo = seasonStats.position_rank 
+          ? `${card.player.position} #${seasonStats.position_rank}` 
+          : card.player.position
+        gameInfo = `${rankInfo} | ${seasonStats.games_played} games`
+      } else if (seasonStats && seasonStats.games_played === 0) {
+        gameInfo = `${card.player.position} | No games played`
+      } else {
+        gameInfo = `${card.player.position} | No stats yet`
+      }
+      
+      return {
+        id: card.id, // Use the card's unique ID, not the player's ID
+        name: `${card.player.first_name} ${card.player.last_name}`,
+        position: card.player.position,
+        team: card.player.team,
+        gameInfo,
+        stats: {
+          fpts: seasonStats?.total_fantasy_points || 0,
+          proj: seasonStats?.avg_fantasy_points || 0,
+          snp: seasonStats?.catch_pct || 0,
+          tar: seasonStats?.targets || 0,
+          rec: seasonStats?.receptions || 0,
+          yd: seasonStats?.passing_yards || seasonStats?.rushing_yards || seasonStats?.receiving_yards || 0,
+          ypt: seasonStats?.yards_per_reception || 0,
+          ypc: seasonStats?.yards_per_carry || 0,
+          td: seasonStats?.passing_tds || seasonStats?.rushing_tds || seasonStats?.receiving_tds || 0,
+          fum: seasonStats?.fumbles_lost || 0,
+          lost: seasonStats?.passing_ints || 0
+        },
+        rarity: card.rarity || 'common',
+        contractsRemaining: card.remaining_contracts,
+        currentSellValue: card.current_sell_value,
+        injuryStatus: 'healthy' as const
+      }
+    })
   }
 
   // Transform token data to CollectionItem format for tokens
@@ -455,31 +920,48 @@ export default function TeamDashboard() {
 
   // Transform data to unified CollectionItem format
   const getCollectionItems = (): CollectionItem[] => {
-    const playerItems: CollectionItem[] = userCards.map(card => ({
-      id: card.id,
-      type: 'player' as const,
-      name: `${card.player.first_name} ${card.player.last_name}`,
-      position: card.player.position,
-      team: card.player.team,
-      gameInfo: 'Next game info',
-      stats: {
-        fpts: card.projected_points || 0,
-        proj: card.projected_points || 0,
-        snp: Math.round(Math.random() * 100), // Mock data
-        tar: Math.round(Math.random() * 10),
-        rec: Math.round(Math.random() * 8),
-        yd: Math.round(Math.random() * 100),
-        ypt: Math.round(Math.random() * 10),
-        ypc: Math.round(Math.random() * 15),
-        td: Math.round(Math.random() * 3),
-        fum: Math.round(Math.random() * 2),
-        lost: Math.round(Math.random() * 1)
-      },
-      rarity: card.rarity || 'common',
-      contractsRemaining: card.remaining_contracts,
-      currentSellValue: card.current_sell_value,
-      injuryStatus: 'healthy' as const
-    }))
+    const playerItems: CollectionItem[] = userCards.map(card => {
+      const playerId = card.player.id
+      const seasonStats = playerSeasonStats.get(playerId)
+      const gameStats = playerGameStats.get(playerId)
+      const trendData = trendingData.get(playerId)
+      
+      return {
+        id: card.id,
+        type: 'player' as const,
+        name: `${card.player.first_name} ${card.player.last_name}`,
+        position: card.player.position,
+        team: card.player.team,
+        gameInfo: seasonStats 
+          ? `${card.player.position} #${seasonStats.position_rank} | ${seasonStats.games_played} games`
+          : 'No game data',
+        stats: {
+          fpts: seasonStats?.total_fantasy_points || 0,
+          proj: card.projected_points || 0,
+          avg: gameStats?.avg || 0,
+          best: gameStats?.best || 0,
+          last: gameStats?.last || 0,
+          snp: 0,  // Snap percentage - not available
+          tar: 0,
+          rec: 0,
+          yd: 0,
+          ypt: 0,
+          ypc: 0,
+          td: 0,
+          fum: 0,
+          lost: 0
+        },
+        rarity: card.rarity || 'common',
+        contractsRemaining: card.remaining_contracts,
+        currentSellValue: card.current_sell_value,
+        injuryStatus: 'healthy' as const,
+        trending: trendData ? {
+          direction: trendData.direction,
+          strength: trendData.strength
+        } : undefined,
+        positionRank: seasonStats?.position_rank
+      }
+    })
 
     const tokenItems: CollectionItem[] = availableTokens
       .filter(token => token && token.token_type)
@@ -569,10 +1051,20 @@ export default function TeamDashboard() {
       setPackLoading(true)
       setMessage(null)
       
+      // Validate inputs before making API call
+      if (!packId) {
+        throw new Error('Pack ID is missing')
+      }
+      if (!currentTeam.id) {
+        throw new Error('Team ID is missing')
+      }
+      
       const idempotencyKey = `pack-${packId}-${Date.now()}-${Math.random().toString(36).substring(7)}`
       
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Not authenticated')
+      
+      console.log('Purchasing pack:', { packId, teamId: currentTeam.id, idempotencyKey })
       
       const response = await fetch('/api/teams/purchase-pack', {
         method: 'POST',
@@ -588,9 +1080,11 @@ export default function TeamDashboard() {
       })
       
       const result = await response.json()
+      console.log('Purchase response:', result)
       
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to purchase pack')
+        const errorMsg = result.details ? `${result.error}: ${result.details}` : result.error || 'Failed to purchase pack'
+        throw new Error(errorMsg)
       }
       
       // Update team coins
@@ -604,7 +1098,12 @@ export default function TeamDashboard() {
       setMessage(`✅ Successfully purchased ${result.pack.name}! Received ${result.cards?.length || 0} cards: ${cardsList}`)
       
       // Reload user cards to show the new cards in collection
-      await loadData()
+      if (user?.id) {
+        await Promise.all([
+          loadTeamCards(user.id, teamId),
+          loadUserPacks()
+        ])
+      }
       
     } catch (error) {
       console.error('Pack purchase error:', error)
@@ -750,6 +1249,43 @@ export default function TeamDashboard() {
     }
   }
 
+  // Prepare lineup grid content - must be after handler functions are defined
+  const lineupGridContent = activeTab === 'lineup' && currentWeek ? (
+    <LineupBuilder
+      availableCards={userCards}
+      lineupSlots={lineupSlots}
+      availableTokens={availableTokens}
+      playerSeasonStats={playerSeasonStats}
+      trendingData={trendingData}
+      playerGameStats={playerGameStats}
+      onSlotChange={handleLineupSlotChange}
+      onTokenApply={handleTokenApply}
+      onPlayerClick={handlePlayerClick}
+      loading={lineupLoading}
+      title={`Week ${currentWeek.week_number} Lineup`}
+      showAvailableCards={false}
+      disableSticky={true}
+      selectedSlot={lineupSelectedSlot}
+      onSelectedSlotChange={setLineupSelectedSlot}
+      slotFilter={lineupSlotFilter}
+      onSlotFilterChange={setLineupSlotFilter}
+    />
+  ) : null
+
+  // Register persistent header - MUST be at top level before any conditional returns
+  usePageHeader({
+    title: currentTeam?.name || 'Loading...',
+    subtitle: `${currentWeek ? `Week ${currentWeek.week_number}` : 'Season'} · ${currentTeam?.coins.toLocaleString() || '0'} Coins`,
+    showNavigation: true,
+    tabs: tabs,
+    activeTab: activeTab,
+    onTabChange: (tabId) => setActiveTab(tabId as TabType),
+    actions: headerActions,
+    showFilters: activeTab === 'collection',
+    filterContent: collectionFilterContent,
+    additionalContent: lineupGridContent
+  })
+
   console.log('[TeamDashboard] Render:', { loading, authLoading, initialized, hasUser: !!user, hasTeam: !!currentTeam, teamId })
   
   // Show loading while auth is initializing OR while team data is loading
@@ -789,252 +1325,67 @@ export default function TeamDashboard() {
     )
   }
 
-    return (
+  return (
     <StandardLayout>
-      {/* Compact Command Center Header - Full Width */}
-      <div className="sticky top-0 z-50 border-b" style={{backgroundColor: 'var(--color-obsidian)', borderColor: 'var(--color-steel)'}}>
-        {/* Top Info Bar - Minimal & Clean */}
-        <div className="flex items-center justify-between px-6 py-3">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-bold text-white">{currentTeam.name}</h1>
-            <div className="flex items-center space-x-3 text-sm">
-              <span className="text-gray-500">·</span>
-              <span className="text-gray-400">
-                {currentWeek ? `Week ${currentWeek.week_number}` : 'Season'}
-              </span>
-              <span className="text-gray-500">·</span>
-              <span className="font-semibold text-green-400 flex items-center gap-1">
-                <Coins className="w-4 h-4" />
-                {currentTeam.coins.toLocaleString()}
-              </span>
-            </div>
-          </div>
-          
-          {/* Action Icons - Minimal Style */}
-          <div className="flex items-center space-x-1">
-            <button 
-              className="p-2 text-gray-500 hover:text-white transition-colors"
-              title="Statistics"
-            >
-              <BarChart3 className="w-5 h-5" />
-            </button>
-            <button 
-              className="p-2 text-gray-500 hover:text-white transition-colors"
-              title="Settings"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-            <button 
-              className="p-2 text-gray-500 hover:text-white transition-colors relative"
-              title="Notifications"
-            >
-              <Bell className="w-5 h-5" />
-              {userPacks.filter(p => p.status === 'unopened').length > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-green-400 rounded-full"></span>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Tab Navigation - Sleek Design */}
-        <div className="flex space-x-0 border-t px-6" style={{borderColor: 'var(--color-steel)'}}>
-              {[
-                { id: 'lineup', label: 'Lineup', Icon: Trophy, badge: null },
-                { id: 'collection', label: 'Collection', Icon: LayoutGrid, badge: userCards.length + availableTokens.length },
-                { id: 'store', label: 'Store', Icon: Store, badge: userPacks.filter(p => p.status === 'unopened').length || null },
-                { id: 'activity', label: 'Activity', Icon: ClipboardList, badge: null }
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`relative px-6 py-3 text-sm font-semibold transition-all ${
-                    activeTab === tab.id
-                      ? 'text-green-400'
-                      : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2">
-                    <tab.Icon className="w-4 h-4" />
-                    <span>{tab.label}</span>
-                    {tab.badge && (
-                      <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-700 text-gray-300">
-                        {tab.badge}
-                      </span>
-                    )}
-                  </div>
-                  {/* Active indicator - bottom border */}
-                  {activeTab === tab.id && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-400"></div>
-                  )}
-                </button>
-              ))}
-        </div>
-
-        {/* Collection Filters - Only show when Collection tab is active */}
-        {activeTab === 'collection' && (
-          <div className="px-6 py-3 border-t flex items-center gap-3" style={{borderColor: 'var(--color-steel)'}}>
-            {/* Search - Full width first */}
-              <div className="flex-1">
-                <SearchInput
-                  placeholder="Search by player name or token..."
-                  value={collectionSearchTerm}
-                  onChange={(e) => setCollectionSearchTerm(e.target.value)}
-                  onClear={() => setCollectionSearchTerm('')}
-                />
-              </div>
-
-              {/* Type Filter */}
-              <div className="w-48">
-                <Select
-                  value={collectionTypeFilter}
-                  onChange={(e) => setCollectionTypeFilter(e.target.value as 'all' | 'player' | 'token')}
-                  options={[
-                    { value: 'all', label: 'All Items' },
-                    { value: 'player', label: 'Players' },
-                    { value: 'token', label: 'Tokens' }
-                  ]}
-                  placeholder="All Items"
-                />
-              </div>
-
-              {/* Position Filter */}
-              <div className="w-48">
-                <Select
-                  value={collectionPositionFilter}
-                  onChange={(e) => setCollectionPositionFilter(e.target.value)}
-                  options={[
-                    { value: 'all', label: 'All Positions' },
-                    { value: 'QB', label: 'QB' },
-                    { value: 'RB', label: 'RB' },
-                    { value: 'WR', label: 'WR' },
-                    { value: 'TE', label: 'TE' }
-                  ]}
-                  placeholder="All Positions"
-                />
-              </div>
-
-              {/* Sort By */}
-              <div className="w-40">
-                <Select
-                  value={collectionSortBy}
-                  onChange={(e) => setCollectionSortBy(e.target.value as 'name' | 'fpts' | 'rarity')}
-                  options={[
-                    { value: 'name', label: 'Name' },
-                    { value: 'fpts', label: 'Fantasy Points' },
-                    { value: 'rarity', label: 'Rarity' }
-                  ]}
-                  placeholder="Sort By"
-                />
-              </div>
-
-              {/* Order */}
-              <div className="w-32">
-                <Select
-                  value={collectionSortOrder}
-                  onChange={(e) => setCollectionSortOrder(e.target.value as 'asc' | 'desc')}
-                  options={[
-                    { value: 'asc', label: collectionSortBy === 'name' ? 'A → Z' : 'Low → High' },
-                    { value: 'desc', label: collectionSortBy === 'name' ? 'Z → A' : 'High → Low' }
-                  ]}
-                />
-              </div>
-
-              {/* Reset Button */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setCollectionSearchTerm('')
-                  setCollectionTypeFilter('all')
-                  setCollectionPositionFilter('all')
-                  setCollectionSortBy('fpts')
-                  setCollectionSortOrder('desc')
-                }}
-              >
-                Reset Filters
-              </Button>
-          </div>
-        )}
-
-        {/* Lineup Grid - Part of Sticky Header (only show on Lineup tab) */}
-        {activeTab === 'lineup' && currentWeek && (
-          <div className="border-t" style={{borderColor: 'var(--color-steel)'}}>
-            <LineupBuilder
-              availableCards={userCards}
-              lineupSlots={lineupSlots}
-              availableTokens={availableTokens}
-              onSlotChange={handleLineupSlotChange}
-              onTokenApply={handleTokenApply}
-              onPlayerClick={handlePlayerClick}
-              loading={lineupLoading}
-              title={`Week ${currentWeek.week_number} Lineup`}
-              showAvailableCards={false}
-              disableSticky={true}
-              selectedSlot={lineupSelectedSlot}
-              onSelectedSlotChange={setLineupSelectedSlot}
-              slotFilter={lineupSlotFilter}
-              onSlotFilterChange={setLineupSlotFilter}
-            />
-          </div>
-        )}
-      </div>
       
-      {/* Lineup Tab - Available Players in ContentContainer */}
+      {/* Lineup Tab - Available Players Edge to Edge */}
       {activeTab === 'lineup' && currentWeek && (
-        <>
-          
-          {/* Available Players in ContentContainer */}
-          <ContentContainer>
-            <div>
-              <LineupBuilder
-                availableCards={userCards}
-                lineupSlots={lineupSlots}
-                availableTokens={availableTokens}
-                onSlotChange={handleLineupSlotChange}
-                onTokenApply={handleTokenApply}
-                onPlayerClick={handlePlayerClick}
-                loading={lineupLoading}
-                title={`Week ${currentWeek.week_number} Lineup`}
-                showAvailableCards={true}
-                showLineupGrid={false}
-                showSubmitButton={false}
-                compact={true}
-                selectedSlot={lineupSelectedSlot}
-                onSelectedSlotChange={setLineupSelectedSlot}
-                slotFilter={lineupSlotFilter}
-                onSlotFilterChange={setLineupSlotFilter}
-              />
-            </div>
-          </ContentContainer>
-        </>
+        <div className="flex-1 overflow-auto">
+          <LineupBuilder
+            availableCards={userCards}
+            lineupSlots={lineupSlots}
+            availableTokens={availableTokens}
+            playerSeasonStats={playerSeasonStats}
+            trendingData={trendingData}
+            playerGameStats={playerGameStats}
+            onSlotChange={handleLineupSlotChange}
+            onTokenApply={handleTokenApply}
+            onPlayerClick={handlePlayerClick}
+            loading={lineupLoading}
+            title={`Week ${currentWeek.week_number} Lineup`}
+            showAvailableCards={true}
+            showLineupGrid={false}
+            showSubmitButton={false}
+            compact={true}
+            selectedSlot={lineupSelectedSlot}
+            onSelectedSlotChange={setLineupSelectedSlot}
+            slotFilter={lineupSlotFilter}
+            onSlotFilterChange={setLineupSlotFilter}
+          />
+        </div>
       )}
       
-      {/* Other Tabs in ContentContainer */}
-      {activeTab !== 'lineup' && (
-        <ContentContainer>
-          <div>
-
-                {activeTab === 'collection' && (
-          <Card className="p-0">
-            {userCards.length === 0 && availableTokens.length === 0 ? (
-              <div className="text-center py-6 px-6">
+      {/* Collection Tab - Edge to Edge (no ContentContainer) */}
+      {activeTab === 'collection' && (
+        userCards.length === 0 && availableTokens.length === 0 ? (
+          <ContentContainer>
+            <Card className="p-6">
+              <div className="text-center py-6">
                 <div className="text-base font-bold text-white mb-2">No items in collection</div>
                 <div className="text-sm text-gray-400 mb-4">Purchase packs to get started</div>
                 <Button onClick={() => setActiveTab('store')} variant="primary">
                   Go to Store
                 </Button>
               </div>
-            ) : (
-              <CollectionListView 
-                items={getFilteredCollectionItems()}
-                onItemClick={handleCollectionItemClick}
-                onSellPlayer={handlePlayerSell}
-                showActions={true}
-                filterType={collectionTypeFilter === 'all' ? undefined : collectionTypeFilter === 'player' ? 'players' : 'tokens'}
-              />
-            )}
-          </Card>
-        )}
+            </Card>
+          </ContentContainer>
+        ) : (
+          <div className="flex-1 overflow-auto">
+            <CollectionListView 
+              items={getFilteredCollectionItems()}
+              onItemClick={handleCollectionItemClick}
+              onSellPlayer={handlePlayerSell}
+              showActions={true}
+              filterType={collectionTypeFilter === 'all' ? undefined : collectionTypeFilter === 'player' ? 'players' : 'tokens'}
+            />
+          </div>
+        )
+      )}
+      
+      {/* Other Tabs in ContentContainer */}
+      {activeTab !== 'lineup' && activeTab !== 'collection' && (
+        <ContentContainer>
+          <div>
 
                  {activeTab === 'store' && (
            <div className="space-y-6">
@@ -1057,9 +1408,9 @@ export default function TeamDashboard() {
              </div>
 
                        {/* Available Packs */}
-           {availablePacks.length > 0 ? (
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {availablePacks.filter(pack => pack && pack.name).map((pack) => {
+          {availablePacks.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+             {availablePacks.filter(pack => pack && pack.name && pack.id).map((pack) => {
                 const cardCount = pack.contents_schema_json?.slots
                   ?.filter((slot: any) => slot.type === 'card')
                   ?.reduce((sum: number, slot: any) => sum + slot.count, 0) || 0

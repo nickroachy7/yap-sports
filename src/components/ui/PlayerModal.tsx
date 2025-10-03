@@ -6,6 +6,8 @@ import Button from './Button'
 import PlayerCard from './PlayerCard'
 import { GameLog } from './GameLog'
 import type { GameLogEntry } from './GameLog'
+import { TrendingIndicator } from './TrendingIndicator'
+import type { TrendingData, TrendingStats } from './TrendingIndicator'
 
 export type PlayerModalData = {
   id: string
@@ -48,7 +50,7 @@ export interface PlayerModalProps {
 }
 
 // Cache player data in sessionStorage for instant loads
-const CACHE_KEY_PREFIX = 'player_modal_v4_' // v4 = position-aware game log
+const CACHE_KEY_PREFIX = 'player_modal_v5_' // v5 = full season game log with DNP & upcoming games
 const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes
 
 export function PlayerModal({
@@ -62,15 +64,27 @@ export function PlayerModal({
   const [gameLogEntries, setGameLogEntries] = useState<GameLogEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [trendingData, setTrendingData] = useState<TrendingData | null>(null)
+  const [trendingStats, setTrendingStats] = useState<TrendingStats | null>(null)
+  const [selectedSeason, setSelectedSeason] = useState(2025)
+  const [availableSeasons, setAvailableSeasons] = useState<number[]>([2025])
+  const [activeTab, setActiveTab] = useState<'overview' | 'gamelog' | 'trending'>('overview')
 
   useEffect(() => {
     if (isOpen && playerId) {
       loadPlayerData(playerId)
+      loadTrendingData(playerId, selectedSeason)
     } else if (!isOpen) {
       // Don't reset state immediately - keep it for smooth closing animation
       // It will be replaced when a new player is opened
     }
   }, [isOpen, playerId])
+
+  useEffect(() => {
+    if (isOpen && playerId && selectedSeason) {
+      loadGameLogForSeason(playerId, selectedSeason)
+    }
+  }, [selectedSeason, isOpen, playerId])
 
   async function loadPlayerData(id: string) {
     try {
@@ -125,6 +139,8 @@ export function PlayerModal({
 
       setPlayer(loadedPlayer)
       setGameLogEntries(data.gameLog || [])
+      setAvailableSeasons(data.availableSeasons || [2025])
+      setSelectedSeason(data.availableSeasons?.[0] || 2025)
 
       // Cache the results
       try {
@@ -143,6 +159,50 @@ export function PlayerModal({
       setError(err.message || 'Failed to load player data')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadTrendingData(id: string, season: number) {
+    try {
+      const response = await fetch(`/api/players/${id}/trending?season=${season}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setTrendingData(data.trending)
+        setTrendingStats({
+          seasonStats: data.seasonStats,
+          recentPerformance: data.recentPerformance,
+          projections: data.projections,
+          analytics: data.analytics,
+          injuryStatus: data.injuryStatus,
+          positionRank: data.positionRank
+        })
+      }
+    } catch (err) {
+      console.error('Error loading trending data:', err)
+    }
+  }
+
+  async function loadGameLogForSeason(id: string, season: number) {
+    try {
+      const response = await fetch(`/api/players/${id}/game-log?season=${season}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setGameLogEntries(data.gameLogEntries || [])
+        if (data.availableSeasons) {
+          setAvailableSeasons(data.availableSeasons)
+        }
+      }
+    } catch (err) {
+      console.error('Error loading game log:', err)
+    }
+  }
+
+  function handleSeasonChange(season: number) {
+    setSelectedSeason(season)
+    if (playerId) {
+      loadTrendingData(playerId, season)
     }
   }
 
@@ -469,18 +529,86 @@ export function PlayerModal({
                       </div>
                     </div>
 
-                    {/* Position-Specific Stats */}
-                    {renderPositionStats()}
-
-                    {/* Bottom Section - Full Season Game Log */}
-                    {gameLogEntries.length > 0 && (
-                      <div className="border-t pt-6 mt-6" style={{borderColor: 'var(--color-steel)'}}>
-                        <h3 className="text-xl font-bold text-white mb-4">📈 Full Season Game Log</h3>
-                        <div className="max-h-80 overflow-y-auto">
-                          <GameLog entries={gameLogEntries} position={player.position} compact={false} />
-                        </div>
+                    {/* Tabs */}
+                    <div className="border-t border-b my-6" style={{borderColor: 'var(--color-steel)'}}>
+                      <div className="flex gap-1">
+                        {['overview', 'trending', 'gamelog'].map(tab => (
+                          <motion.button
+                            key={tab}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => setActiveTab(tab as any)}
+                            className="px-6 py-3 font-bold text-sm uppercase tracking-wider transition-all"
+                            style={{
+                              backgroundColor: activeTab === tab ? 'var(--color-uncommon)' : 'transparent',
+                              color: activeTab === tab ? 'white' : 'var(--color-text-secondary)',
+                              borderBottom: activeTab === tab ? '3px solid var(--color-uncommon)' : '3px solid transparent'
+                            }}
+                          >
+                            {tab === 'overview' ? '📊 Overview' : tab === 'trending' ? '📈 Trending' : '🗓️ Game Log'}
+                          </motion.button>
+                        ))}
                       </div>
-                    )}
+                    </div>
+
+                    {/* Tab Content */}
+                    <div className="min-h-[400px]">
+                      {activeTab === 'overview' && (
+                        <motion.div
+                          key="overview"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                        >
+                          {/* Position-Specific Stats */}
+                          {renderPositionStats()}
+                        </motion.div>
+                      )}
+
+                      {activeTab === 'trending' && (
+                        <motion.div
+                          key="trending"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                        >
+                          {trendingData && trendingStats ? (
+                            <TrendingIndicator 
+                              trending={trendingData} 
+                              stats={trendingStats}
+                            />
+                          ) : (
+                            <div className="text-center py-12">
+                              <div className="text-white mb-2">Loading trending data...</div>
+                              <div className="animate-pulse" style={{color: 'var(--color-text-secondary)'}}>
+                                Analyzing {selectedSeason} season performance
+                              </div>
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+
+                      {activeTab === 'gamelog' && gameLogEntries.length > 0 && (
+                        <motion.div
+                          key="gamelog"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                        >
+                          <div className="max-h-[500px] overflow-y-auto">
+                            <GameLog 
+                              entries={gameLogEntries} 
+                              position={player.position} 
+                              compact={false}
+                              currentSeason={selectedSeason}
+                              availableSeasons={availableSeasons}
+                              onSeasonChange={handleSeasonChange}
+                              playerName={player.name}
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
                   </div>
                 </>
               ) : null}

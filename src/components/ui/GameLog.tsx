@@ -14,6 +14,7 @@ export interface GameLogEntry {
   isHome: boolean
   gameStatus: 'upcoming' | 'live' | 'completed'
   playerStats?: any  // Position-specific stats
+  didNotPlay?: boolean  // Flag for DNP (Did Not Play) - completed games with no stats
 }
 
 export interface GameLogProps {
@@ -22,6 +23,9 @@ export interface GameLogProps {
   position?: string  // NEW: Position to determine which columns to show
   className?: string
   compact?: boolean
+  currentSeason?: number
+  availableSeasons?: number[]
+  onSeasonChange?: (season: number) => void
 }
 
 const getGameStatusColor = (status: string) => {
@@ -70,7 +74,10 @@ export function GameLog({
   playerName,
   position,
   className,
-  compact = false
+  compact = false,
+  currentSeason = 2025,
+  availableSeasons = [2025],
+  onSeasonChange
 }: GameLogProps) {
   const normalizedPos = normalizePosition(position);
 
@@ -121,22 +128,56 @@ export function GameLog({
 
   return (
     <div className={cn("space-y-2", className)}>
-      {/* Header */}
+      {/* Header with Season Toggle */}
       {playerName && (
         <div className="mb-6">
-          <h3 className="text-xl font-bold text-white mb-2">
-            {playerName} - Game Log
-          </h3>
-          <div className="w-16 h-1 rounded"
-               style={{backgroundColor: 'var(--color-uncommon)'}}></div>
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-xl font-bold text-white">
+                {playerName} - Game Log
+              </h3>
+              <div className="w-16 h-1 rounded mt-2"
+                   style={{backgroundColor: 'var(--color-uncommon)'}}></div>
+            </div>
+            
+            {/* Season Toggle */}
+            {availableSeasons && availableSeasons.length > 1 && onSeasonChange && (
+              <div className="flex gap-2">
+                {availableSeasons.map(season => (
+                  <motion.button
+                    key={season}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => onSeasonChange(season)}
+                    className="px-4 py-2 rounded-lg font-bold text-sm transition-all"
+                    style={{
+                      backgroundColor: currentSeason === season 
+                        ? 'var(--color-uncommon)' 
+                        : 'var(--color-slate)',
+                      color: currentSeason === season 
+                        ? 'white' 
+                        : 'var(--color-text-secondary)',
+                      border: '1px solid',
+                      borderColor: currentSeason === season
+                        ? 'var(--color-uncommon)'
+                        : 'var(--color-steel)'
+                    }}
+                  >
+                    {season}
+                  </motion.button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* Column Headers */}
-      <div className={`grid gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider`}
+      <div className={`grid gap-2 px-6 py-2 text-xs font-semibold uppercase tracking-wider`}
            style={{
-             color: 'var(--color-text-secondary)', 
-             borderBottom: '1px solid var(--color-steel)',
+             color: '#8b8b8b',
+             backgroundColor: 'transparent',
+             borderBottom: '1px solid rgba(255,255,255,0.05)',
              gridTemplateColumns: `repeat(${8 + totalStatSpan}, minmax(0, 1fr))`
            }}>
         <div className="col-span-1 text-center">WK</div>
@@ -157,14 +198,15 @@ export function GameLog({
             key={`${entry.id}-${entry.week}-${index}`}
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: index * 0.1 }}
+            transition={{ delay: index * 0.05 }}
             className={cn(
-              "grid gap-2 px-4 py-3 transition-all duration-200",
-              "hover:brightness-110",
+              "grid gap-2 px-6 py-3 transition-all duration-200",
+              "hover:bg-white/[0.03]",
               entry.gameStatus === 'live' && "ring-1 ring-green-500/30"
             )}
             style={{
-              backgroundColor: index % 2 === 1 ? 'var(--color-gunmetal)' : 'transparent',
+              backgroundColor: index % 2 === 0 ? 'transparent' : 'rgba(15, 20, 30, 0.4)',
+              borderBottom: '1px solid rgba(255,255,255,0.02)',
               gridTemplateColumns: `repeat(${8 + totalStatSpan}, minmax(0, 1fr))`
             }}
           >
@@ -204,23 +246,31 @@ export function GameLog({
 
             {/* Actual Points */}
             <div className="col-span-2 flex items-center justify-center">
-              <div className={cn(
-                "text-sm font-semibold",
-                entry.projection && entry.actualPoints && entry.actualPoints > entry.projection 
-                  ? "text-green-400" 
-                  : entry.projection && entry.actualPoints && entry.actualPoints < entry.projection
-                  ? "text-red-400"
-                  : "text-white"
-              )}>
-                {entry.actualPoints !== undefined ? entry.actualPoints.toFixed(1) : '-'}
-              </div>
+              {entry.didNotPlay ? (
+                <div className="text-sm font-bold text-yellow-500">
+                  DNP
+                </div>
+              ) : (
+                <div className={cn(
+                  "text-sm font-semibold",
+                  entry.projection && entry.actualPoints && entry.actualPoints > entry.projection 
+                    ? "text-green-400" 
+                    : entry.projection && entry.actualPoints && entry.actualPoints < entry.projection
+                    ? "text-red-400"
+                    : "text-white"
+                )}>
+                  {entry.actualPoints !== undefined ? entry.actualPoints.toFixed(1) : '-'}
+                </div>
+              )}
             </div>
 
             {/* Position-Specific Stats */}
             {columns.map((col) => (
               <div key={col.key} className={`col-span-${col.span} flex items-center justify-center`}>
                 <div className="text-sm font-semibold text-white">
-                  {entry.playerStats?.[col.key] !== undefined && entry.playerStats?.[col.key] !== null
+                  {entry.didNotPlay 
+                    ? '-'
+                    : entry.playerStats?.[col.key] !== undefined && entry.playerStats?.[col.key] !== null
                     ? typeof entry.playerStats[col.key] === 'number' && (col.key.includes('p') || col.key === 'rating' || col.key === 'ypa' || col.key === 'ypc' || col.key === 'ypr')
                       ? entry.playerStats[col.key].toFixed(1)  // Percentages, averages, and ratings
                       : entry.playerStats[col.key]
@@ -231,64 +281,6 @@ export function GameLog({
           </motion.div>
         ))}
       </div>
-
-      {/* Summary Stats */}
-      {entries.length > 0 && (
-        <div className="mt-6 p-4 rounded-lg"
-             style={{backgroundColor: 'var(--color-slate)', border: '1px solid var(--color-steel)'}}>
-          <h4 className="text-sm font-bold uppercase tracking-wide mb-3"
-              style={{color: 'var(--color-text-secondary)'}}>
-            Season Summary
-          </h4>
-          <div className="grid grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-xl font-black text-white">
-                {entries.filter(e => e.gameStatus === 'completed').length}
-              </div>
-              <div className="text-xs font-medium uppercase tracking-wide"
-                   style={{color: 'var(--color-text-tertiary)'}}>
-                Games Played
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-xl font-black text-white">
-                {entries
-                  .filter(e => e.actualPoints !== undefined)
-                  .reduce((sum, e) => sum + (e.actualPoints || 0), 0)
-                  .toFixed(1)}
-              </div>
-              <div className="text-xs font-medium uppercase tracking-wide"
-                   style={{color: 'var(--color-text-tertiary)'}}>
-                Total Points
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-xl font-black text-white">
-                {entries.filter(e => e.actualPoints !== undefined).length > 0
-                  ? (entries
-                      .filter(e => e.actualPoints !== undefined)
-                      .reduce((sum, e) => sum + (e.actualPoints || 0), 0) /
-                      entries.filter(e => e.actualPoints !== undefined).length
-                    ).toFixed(1)
-                  : '0.0'}
-              </div>
-              <div className="text-xs font-medium uppercase tracking-wide"
-                   style={{color: 'var(--color-text-tertiary)'}}>
-                Avg Per Game
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-xl font-black text-white">
-                {Math.max(...entries.map(e => e.actualPoints || 0)).toFixed(1)}
-              </div>
-              <div className="text-xs font-medium uppercase tracking-wide"
-                   style={{color: 'var(--color-text-tertiary)'}}>
-                Best Game
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

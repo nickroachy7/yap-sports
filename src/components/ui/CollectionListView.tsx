@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { TrendingBadge } from './TrendingBadge'
 
 // Unified collection item interface
 export interface CollectionItem {
@@ -15,7 +16,10 @@ export interface CollectionItem {
   stats?: {
     fpts: number
     proj: number
-    snp: number
+    avg: number      // Average fantasy points per game
+    best: number     // Best single game performance
+    last: number     // Last week's fantasy points
+    snp?: number     // Snap percentage (optional, not always available)
     tar: number
     rec: number
     yd: number
@@ -30,6 +34,11 @@ export interface CollectionItem {
   currentSellValue?: number
   isStarter?: boolean
   injuryStatus?: 'healthy' | 'questionable' | 'doubtful' | 'out'
+  trending?: {
+    direction: 'up' | 'down' | 'stable'
+    strength: number
+  }
+  positionRank?: number
   // Token-specific fields
   description?: string
   multiplier?: number
@@ -150,35 +159,46 @@ export function CollectionListView({
   className,
   filterType = 'all'
 }: CollectionListViewProps) {
-  // Filter items based on type
-  const filteredItems = items.filter(item => {
-    if (filterType === 'all') return true
-    if (filterType === 'players') return item.type === 'player'
-    if (filterType === 'tokens') return item.type === 'token'
-    return true
-  })
+  // Separate players and tokens
+  const players = items.filter(item => item.type === 'player')
+  const tokens = items.filter(item => item.type === 'token')
+  
+  // Filter based on filterType
+  const shouldShowPlayers = filterType === 'all' || filterType === 'players'
+  const shouldShowTokens = filterType === 'all' || filterType === 'tokens'
 
   return (
     <div className={cn("", className)}>
-      {/* Header */}
-      <div className={`grid gap-3 px-6 py-3 text-xs font-medium uppercase tracking-wider border-b ${
-        showActions ? 'grid-cols-24' : 'grid-cols-20'
-      }`}
-           style={{color: 'var(--color-text-secondary)', borderColor: 'var(--color-steel)'}}>
-        <div className="col-span-6">Player</div>
-        <div className="col-span-2 text-center">FPTS</div>
-        <div className="col-span-2 text-center">PROJ</div>
-        <div className="col-span-2 text-center">SNP%</div>
-        <div className="col-span-2 text-center">TAR</div>
-        <div className="col-span-2 text-center">REC</div>
-        <div className="col-span-2 text-center">YD</div>
-        <div className="col-span-2 text-center">TD</div>
-        {showActions && <div className="col-span-4 text-center">Actions</div>}
-      </div>
+      {/* Players Section */}
+        {shouldShowPlayers && players.length > 0 && (
+          <>
+            {/* Sticky Player Header - sticks to top of scroll container */}
+            <div 
+              className={`sticky z-30 grid gap-3 px-6 py-3 text-xs font-medium uppercase tracking-wider border-b ${
+                showActions ? 'grid-cols-24' : 'grid-cols-20'
+              }`}
+              style={{
+                position: 'sticky',
+                top: '0',
+                color: 'var(--color-text-secondary)', 
+                borderColor: 'var(--color-steel)',
+                backgroundColor: 'var(--color-obsidian)'
+              }}
+            >
+              <div className="col-span-6">Player</div>
+              <div className="col-span-2 text-center">Trend</div>
+              <div className="col-span-2 text-center">PRK</div>
+              <div className="col-span-2 text-center">PROJ</div>
+              <div className="col-span-2 text-center">AVG</div>
+              <div className="col-span-2 text-center">BEST</div>
+              <div className="col-span-2 text-center">LST</div>
+              <div className="col-span-2 text-center">FPTS</div>
+              {showActions && <div className="col-span-4 text-center">Actions</div>}
+            </div>
 
-      {/* Item Rows */}
-      <div>
-        {filteredItems.map((item, index) => (
+            {/* Player Rows */}
+            <div className="mb-8">
+        {players.map((item, index) => (
           <motion.div
             key={item.id}
             initial={{ opacity: 0, y: 10 }}
@@ -208,110 +228,96 @@ export function CollectionListView({
 
               {/* Item Details */}
               <div className="min-w-0 flex-1">
-                {item.type === 'player' ? (
-                  <>
-                    {/* Player Name */}
-                    <div className="font-medium text-white text-sm leading-tight">
-                      {item.name}
-                    </div>
-                    
-                    {/* Team and Position Badges */}
-                    <div className="flex items-center gap-1 mt-1">
-                      <span 
-                        className="px-2 py-0.5 rounded text-xs font-bold text-white"
-                        style={{backgroundColor: getTeamColor(item.team || '')}}
-                      >
-                        {item.team}
-                      </span>
-                      <span 
-                        className="px-2 py-0.5 rounded text-xs font-bold text-white"
-                        style={{backgroundColor: getPositionColor(getPositionAbbreviation(item.position || ''))}}
-                      >
-                        {getPositionAbbreviation(item.position || '')}
-                      </span>
-                      {item.injuryStatus && item.injuryStatus !== 'healthy' && (
-                        <span 
-                          className="px-2 py-0.5 rounded text-xs font-bold text-white"
-                          style={{backgroundColor: getInjuryStatusColor(item.injuryStatus)}}
-                        >
-                          {item.injuryStatus.charAt(0).toUpperCase()}
-                        </span>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    {/* Token Name */}
-                    <div className={cn(
-                      "font-medium text-sm leading-tight",
-                      item.used ? 'text-gray-400' : 'text-white'
-                    )}>
-                      {item.name}
-                    </div>
-                    
-                    {/* Token Details */}
-                    <div className="flex items-center gap-1 mt-1">
-                      <span 
-                        className="px-2 py-0.5 rounded text-xs font-bold text-white"
-                        style={{backgroundColor: 'var(--color-violet)'}}
-                      >
-                        TOKEN
-                      </span>
-                      {item.used && (
-                        <span className="text-xs text-red-400 font-medium">Used</span>
-                      )}
-                    </div>
-                  </>
+                {/* Player Name */}
+                <div className="font-medium text-white text-sm leading-tight">
+                  {item.name}
+                </div>
+                
+                {/* Team and Position Badges */}
+                <div className="flex items-center gap-1 mt-1">
+                  <span 
+                    className="px-2 py-0.5 rounded text-xs font-bold text-white"
+                    style={{backgroundColor: getTeamColor(item.team || '')}}
+                  >
+                    {item.team}
+                  </span>
+                  <span 
+                    className="px-2 py-0.5 rounded text-xs font-bold text-white"
+                    style={{backgroundColor: getPositionColor(getPositionAbbreviation(item.position || ''))}}
+                  >
+                    {getPositionAbbreviation(item.position || '')}
+                  </span>
+                  {item.injuryStatus && item.injuryStatus !== 'healthy' && (
+                    <span 
+                      className="px-2 py-0.5 rounded text-xs font-bold text-white"
+                      style={{backgroundColor: getInjuryStatusColor(item.injuryStatus)}}
+                    >
+                      {item.injuryStatus.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                
+                {/* Game Info with Position Rank */}
+                {item.gameInfo && (
+                  <div className="text-xs mt-1" style={{color: 'var(--color-text-secondary)'}}>
+                    {item.gameInfo}
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* FPTS */}
+            {/* Trending Badge */}
+            <div className="col-span-2 flex items-center justify-center">
+              {item.trending ? (
+                <TrendingBadge 
+                  direction={item.trending.direction}
+                  strength={item.trending.strength}
+                  compact={true}
+                />
+              ) : (
+                <span className="text-xs text-gray-600">-</span>
+              )}
+            </div>
+
+            {/* PRK - Position Rank */}
             <div className="col-span-2 flex items-center justify-center">
               <div className="text-sm font-medium text-white">
-                {item.type === 'player' ? (item.stats?.fpts?.toFixed(1) || '0.0') : '-'}
+                {item.positionRank ? `#${item.positionRank}` : '-'}
               </div>
             </div>
 
             {/* PROJ */}
             <div className="col-span-2 flex items-center justify-center">
               <div className="text-sm font-medium text-white">
-                {item.type === 'player' ? (item.stats?.proj?.toFixed(1) || '0.0') : '-'}
+                {item.stats?.proj?.toFixed(1) || '0.0'}
               </div>
             </div>
 
-            {/* SNP% */}
+            {/* AVG - Average Fantasy Points per Game */}
             <div className="col-span-2 flex items-center justify-center">
               <div className="text-sm font-medium text-white">
-                {item.type === 'player' ? `${item.stats?.snp || 0}%` : '-'}
+                {(item.stats?.avg || 0).toFixed(1)}
               </div>
             </div>
 
-            {/* TAR */}
+            {/* BEST - Best Single Game */}
             <div className="col-span-2 flex items-center justify-center">
               <div className="text-sm font-medium text-white">
-                {item.type === 'player' ? (item.stats?.tar || '-') : '-'}
+                {(item.stats?.best || 0).toFixed(1)}
               </div>
             </div>
 
-            {/* REC */}
+            {/* LST - Last Week Fantasy Points */}
             <div className="col-span-2 flex items-center justify-center">
               <div className="text-sm font-medium text-white">
-                {item.type === 'player' ? (item.stats?.rec || '-') : '-'}
+                {(item.stats?.last || 0).toFixed(1)}
               </div>
             </div>
 
-            {/* YD */}
+            {/* FPTS */}
             <div className="col-span-2 flex items-center justify-center">
               <div className="text-sm font-medium text-white">
-                {item.type === 'player' ? (item.stats?.yd || '-') : '-'}
-              </div>
-            </div>
-
-            {/* TD */}
-            <div className="col-span-2 flex items-center justify-center">
-              <div className="text-sm font-medium text-white">
-                {item.type === 'player' ? (item.stats?.td || '-') : '-'}
+                {item.stats?.fpts?.toFixed(1) || '0.0'}
               </div>
             </div>
 
@@ -319,7 +325,7 @@ export function CollectionListView({
             {showActions && (
               <div className="col-span-4 flex items-center justify-center gap-2"
                    onClick={(e) => e.stopPropagation()}>
-                {item.type === 'player' && onSellPlayer && (
+                {onSellPlayer && (
                   <button
                     onClick={() => onSellPlayer(item.id)}
                     className="px-3 py-1 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
@@ -333,6 +339,114 @@ export function CollectionListView({
           </motion.div>
         ))}
       </div>
+          </>
+      )}
+
+      {/* Tokens Section */}
+      {shouldShowTokens && tokens.length > 0 && (
+        <>
+          {/* Sticky Token Header - sticks to top of scroll container */}
+          <div 
+            className="sticky z-30 grid gap-3 px-6 py-3 text-xs font-medium uppercase tracking-wider border-b grid-cols-20"
+            style={{
+              position: 'sticky',
+              top: '0',
+              color: 'var(--color-text-secondary)', 
+              borderColor: 'var(--color-steel)',
+              backgroundColor: 'var(--color-obsidian)'
+            }}
+          >
+            <div className="col-span-6">Boost Token</div>
+            <div className="col-span-3 text-center">Type</div>
+            <div className="col-span-3 text-center">Multiplier</div>
+            <div className="col-span-3 text-center">Applies To</div>
+            <div className="col-span-2 text-center">Status</div>
+            <div className="col-span-3 text-center">Usage</div>
+          </div>
+
+          {/* Token Rows */}
+          <div className="mb-8">
+            {tokens.map((item, index) => (
+              <motion.div
+                key={item.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                onClick={() => onItemClick?.(item.id, item.type)}
+                className={cn(
+                  "grid gap-3 px-6 py-3 cursor-pointer transition-all duration-200 grid-cols-20",
+                  "hover:bg-white/5",
+                  onItemClick && "hover:ring-1 hover:ring-white/10",
+                  item.used && "opacity-60"
+                )}
+                style={{
+                  backgroundColor: index % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent'
+                }}
+              >
+                {/* Token Name */}
+                <div className="col-span-6 flex items-center gap-3">
+                  <div className="flex-shrink-0">
+                    <button className="w-6 h-6 rounded-full border border-gray-600 flex items-center justify-center text-gray-400 hover:border-white hover:text-white transition-colors">
+                      <span className="text-sm">+</span>
+                    </button>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className={cn(
+                      "font-medium text-sm leading-tight",
+                      item.used ? 'text-gray-400' : 'text-white'
+                    )}>
+                      {item.name}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      {item.description}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Type */}
+                <div className="col-span-3 flex items-center justify-center">
+                  <span 
+                    className="px-2 py-0.5 rounded text-xs font-bold text-white"
+                    style={{backgroundColor: 'var(--color-violet)'}}
+                  >
+                    {item.statType || 'BONUS'}
+                  </span>
+                </div>
+
+                {/* Multiplier */}
+                <div className="col-span-3 flex items-center justify-center">
+                  <div className="text-lg font-bold text-purple-400">
+                    {item.multiplier}x
+                  </div>
+                </div>
+
+                {/* Applies To */}
+                <div className="col-span-3 flex items-center justify-center">
+                  <div className="text-sm text-gray-300">
+                    Lineup Slot
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div className="col-span-2 flex items-center justify-center">
+                  {item.used ? (
+                    <span className="text-xs text-red-400 font-medium">Used</span>
+                  ) : (
+                    <span className="text-xs text-green-400 font-medium">Available</span>
+                  )}
+                </div>
+
+                {/* Usage */}
+                <div className="col-span-3 flex items-center justify-center">
+                  <div className="text-xs text-gray-400">
+                    {item.used ? 'Already Applied' : 'Click to Apply'}
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

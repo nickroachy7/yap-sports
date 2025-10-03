@@ -15,6 +15,9 @@ export { default as LoadingSkeleton, CardSkeleton, PackSkeleton, LineupSlotSkele
 export { CollectionListView } from './CollectionListView'
 export type { CollectionItem, CollectionListViewProps } from './CollectionListView'
 export { GameLog } from './GameLog'
+export { TrendingIndicator } from './TrendingIndicator'
+export { TrendingBadge } from './TrendingBadge'
+export type { TrendDirection } from './TrendingBadge'
 export type { GameLogEntry, GameLogProps } from './GameLog'
 export { default as PackOpeningModal } from './PackOpeningModal'
 export { DebugPanel } from './DebugPanel'
@@ -37,3 +40,6 @@ export {
   FilterToggle, 
   FilterStats 
 } from './FormComponents'
+export { AppHeader } from './AppHeader'
+export type { AppHeaderProps, AppHeaderTab, Tab, HeaderAction } from './AppHeader'
+export { PersistentHeader } from './PersistentHeader'

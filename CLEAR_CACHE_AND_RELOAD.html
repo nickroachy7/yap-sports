@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Cache - YapSports</title>
+    <style>
+        body {
+            background: #0a0e1a;
+            color: white;
+            font-family: system-ui;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            max-width: 600px;
+            padding: 40px;
+        }
+        h1 { color: #3b82f6; margin-bottom: 20px; }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover { background: #2563eb; }
+        .success {
+            background: #10b981;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+        pre {
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: left;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧹 Clear Stats Cache</h1>
+        <p>The stats endpoint has been fixed! Clear the old cache to see real stats.</p>
+        
+        <button onclick="clearCache()">Clear Cache & Reload Players Page</button>
+        <button onclick="clearAllCache()">Clear ALL Cache</button>
+        
+        <div id="success" class="success">
+            ✅ Cache cleared! Redirecting to players page...
+        </div>
+        
+        <pre id="info">Current cache keys:
+<span id="keys">Loading...</span></pre>
+    </div>
+
+    <script>
+        function showCacheKeys() {
+            const keys = Object.keys(sessionStorage);
+            const relevant = keys.filter(k => k.includes('player'));
+            document.getElementById('keys').textContent = relevant.length > 0 
+                ? relevant.join('\n') 
+                : 'No cache found';
+        }
+
+        function clearCache() {
+            // Clear the old broken cache
+            sessionStorage.removeItem('players_list_v3');
+            sessionStorage.removeItem('players_list_v4');
+            
+            document.getElementById('success').style.display = 'block';
+            
+            setTimeout(() => {
+                window.location.href = '/players';
+            }, 1500);
+        }
+
+        function clearAllCache() {
+            sessionStorage.clear();
+            localStorage.clear();
+            
+            document.getElementById('success').textContent = '✅ All cache cleared! Redirecting...';
+            document.getElementById('success').style.display = 'block';
+            
+            setTimeout(() => {
+                window.location.href = '/players';
+            }, 1500);
+        }
+
+        showCacheKeys();
+    </script>
+</body>
+</html>
+

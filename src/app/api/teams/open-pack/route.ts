@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { getPerformanceWeightedCard } from '@/lib/packWeighting';
 
 const BodySchema = z.object({ 
   userPackId: z.string().uuid(),
@@ -182,10 +183,39 @@ function rollRarity(weights: any): string {
 }
 
 async function getRandomCard(rarity: string) {
+  // Use performance-weighted card selection
+  // This favors players with higher fantasy points from their game logs
+  const cardId = await getPerformanceWeightedCard(rarity);
+  
+  if (cardId) {
+    // Get card details for return
+    const { data: cardData } = await supabaseAdmin
+      .from('cards')
+      .select('id, base_sell_value, base_contracts')
+      .eq('id', cardId)
+      .single();
+    
+    if (cardData) {
+      console.log(`✓ Selected performance-weighted card (${rarity}): ${cardId}`);
+      return {
+        id: cardData.id,
+        rarity,
+        contracts: cardData.base_contracts,
+        sell_value: cardData.base_sell_value
+      };
+    }
+  }
+  
+  // Fallback to old system if weighting fails (shouldn't happen)
+  console.warn(`⚠️ Performance weighting failed for ${rarity}, falling back to random selection`);
+  const PLAYABLE_POSITIONS = ['Quarterback', 'Running Back', 'Wide Receiver', 'Tight End'];
+  
   const { data: cards, error } = await supabaseAdmin
     .from('cards')
-    .select('id, base_sell_value, base_contracts')
-    .eq('rarity', rarity);
+    .select('id, base_sell_value, base_contracts, players!inner(position, active)')
+    .eq('rarity', rarity)
+    .eq('players.active', true)
+    .in('players.position', PLAYABLE_POSITIONS);
     
   if (error || !cards || cards.length === 0) return null;
   

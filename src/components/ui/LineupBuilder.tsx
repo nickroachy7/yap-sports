@@ -52,6 +52,9 @@ export interface LineupBuilderProps {
   availableCards: UserCard[]
   lineupSlots: LineupSlot[]
   availableTokens?: UserToken[]
+  playerSeasonStats?: Map<string, any>
+  trendingData?: Map<string, { direction: 'up' | 'down' | 'stable', strength: number, gamesPlayed: number }>
+  playerGameStats?: Map<string, { avg: number, best: number, last: number }>
   onSlotChange: (slotId: string, userCard: UserCard | null) => void
   onTokenApply?: (slotId: string, token: UserToken | null) => void
   onPlayerClick?: (playerId: string) => void
@@ -393,6 +396,9 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
   availableCards = [],
   lineupSlots = [],
   availableTokens = [],
+  playerSeasonStats,
+  trendingData,
+  playerGameStats,
   onSlotChange,
   onTokenApply,
   onPlayerClick,
@@ -573,31 +579,75 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
     }
 
     // Convert cards to collection items
-    const playerItems: CollectionItem[] = availableForCollection.map(card => ({
-      id: card.id,
-      type: 'player' as const,
-      name: `${card.player.first_name} ${card.player.last_name}`,
-      position: card.player.position,
-      team: card.player.team,
-      gameInfo: 'Available for lineup',
-      stats: {
-        fpts: card.projected_points || 0,
-        proj: card.projected_points || 0,
-        snp: Math.round(Math.random() * 100), // Mock data
-        tar: Math.round(Math.random() * 10),
-        rec: Math.round(Math.random() * 8),
-        yd: Math.round(Math.random() * 100),
-        ypt: Math.round(Math.random() * 10),
-        ypc: Math.round(Math.random() * 15),
-        td: Math.round(Math.random() * 3),
-        fum: Math.round(Math.random() * 2),
-        lost: Math.round(Math.random() * 1)
-      },
-      rarity: card.rarity || 'common',
-      contractsRemaining: card.remaining_contracts,
-      currentSellValue: card.current_sell_value,
-      injuryStatus: 'healthy' as const
-    }))
+    const playerItems: CollectionItem[] = availableForCollection.map((card, index) => {
+      const playerId = card.player.id
+      const seasonStats = playerSeasonStats?.get(playerId)
+      const gameStats = playerGameStats?.get(playerId)
+      const trendData = trendingData?.get(playerId)
+      
+      // Debug logging for first card
+      if (index === 0) {
+        console.log('🔍 LineupBuilder - First card:', {
+          playerName: `${card.player.first_name} ${card.player.last_name}`,
+          playerId,
+          hasStatsMap: !!playerSeasonStats,
+          statsMapSize: playerSeasonStats?.size || 0,
+          hasSeasonStats: !!seasonStats,
+          hasGameStats: !!gameStats,
+          hasTrending: !!trendData,
+          positionRank: seasonStats?.position_rank,
+          trendDirection: trendData?.direction
+        })
+      }
+      
+      // Build game info with position rank
+      let gameInfo = 'Available for lineup'
+      if (seasonStats && seasonStats.games_played > 0) {
+        const rankInfo = seasonStats.position_rank 
+          ? `${card.player.position} #${seasonStats.position_rank}` 
+          : card.player.position
+        gameInfo = `${rankInfo} | ${seasonStats.games_played} games`
+      } else if (seasonStats && seasonStats.games_played === 0) {
+        gameInfo = `${card.player.position} | No games played`
+      } else {
+        // No stats found for this player at all
+        gameInfo = `${card.player.position} | No stats yet`
+      }
+      
+      return {
+        id: card.id,
+        type: 'player' as const,
+        name: `${card.player.first_name} ${card.player.last_name}`,
+        position: card.player.position,
+        team: card.player.team,
+        gameInfo,
+        stats: {
+          fpts: seasonStats?.total_fantasy_points || 0,
+          proj: seasonStats?.avg_fantasy_points || 0,
+          avg: gameStats?.avg || 0,
+          best: gameStats?.best || 0,
+          last: gameStats?.last || 0,
+          snp: seasonStats?.catch_pct || 0,
+          tar: seasonStats?.targets || 0,
+          rec: seasonStats?.receptions || 0,
+          yd: seasonStats?.passing_yards || seasonStats?.rushing_yards || seasonStats?.receiving_yards || 0,
+          ypt: seasonStats?.yards_per_reception || 0,
+          ypc: seasonStats?.yards_per_carry || 0,
+          td: seasonStats?.passing_tds || seasonStats?.rushing_tds || seasonStats?.receiving_tds || 0,
+          fum: seasonStats?.fumbles_lost || 0,
+          lost: seasonStats?.passing_ints || 0
+        },
+        rarity: card.rarity || 'common',
+        contractsRemaining: card.remaining_contracts,
+        currentSellValue: card.current_sell_value,
+        injuryStatus: 'healthy' as const,
+        trending: trendData ? {
+          direction: trendData.direction,
+          strength: trendData.strength
+        } : undefined,
+        positionRank: seasonStats?.position_rank
+      }
+    })
 
     // Convert tokens to collection items
     const tokenItems: CollectionItem[] = (availableTokens || []).map(token => ({
@@ -611,7 +661,7 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
     }))
 
     return [...playerItems, ...tokenItems]
-  }, [availableCards, currentLineup, slotFilter, availableTokens])
+  }, [availableCards, currentLineup, slotFilter, availableTokens, playerSeasonStats, trendingData, playerGameStats])
 
   // Handle collection item click
   const handleCollectionItemClick = useCallback((itemId: string, type: 'player' | 'token') => {
@@ -628,12 +678,21 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
         setPositionFilter('ALL')
       }
     } else if (type === 'player') {
-      // No slot selected, open player modal
+      // No slot selected, try to find first empty matching slot and add instantly
       const card = availableCards.find(c => c.id === itemId)
       if (card) {
-        setSelectedPlayerId(card.player.id)
-        setIsPlayerModalOpen(true)
-        onPlayerClick?.(card.player.id)
+        // Find first empty slot that matches this player's position
+        const emptyMatchingSlot = currentLineup.find(s => !s.user_card && canPlaceCardInSlot(card, s))
+        
+        if (emptyMatchingSlot) {
+          // Instantly add to first available slot
+          onSlotChange(emptyMatchingSlot.slot, card)
+        } else {
+          // No empty slot available, open player modal instead
+          setSelectedPlayerId(card.player.id)
+          setIsPlayerModalOpen(true)
+          onPlayerClick?.(card.player.id)
+        }
       }
     } else if (type === 'token') {
       // Handle token click - open token selection modal for the selected slot
@@ -643,7 +702,7 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
         setIsTokenModalOpen(true)
       } else if (token) {
         // If no slot selected, just show a message or could open a token details modal
-        console.log('Token clicked:', token.token_type.name, '- Select a lineup slot first to apply this token')
+        console.log('Token clicked:', token.token_type.name, '- Select a lineup slot to apply this token')
       }
     }
   }, [selectedSlot, availableCards, availableTokens, currentLineup, onSlotChange, onPlayerClick, setSelectedSlot, setSlotFilter])
@@ -754,70 +813,76 @@ export const LineupBuilder: React.FC<LineupBuilderProps> = ({
 
         {/* Available Cards - hide in compact mode by default */}
         {showAvailableCards && (
-          <Card className={cn(compact ? 'p-0' : 'p-6', 'mt-0')}>
-            {selectedSlot && (
-              <div className="mb-4 mx-6 mt-6 p-3 bg-green-900/20 border border-green-500 rounded-lg flex items-center justify-between">
-                <div className="text-green-300 text-sm font-medium">
-                  Click a player to add to: {currentLineup.find(s => s.slot === selectedSlot)?.label}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setSlotFilter(null)
-                    setSelectedSlot(null)
-                    setPositionFilter('ALL')
-                  }}
-                >
-                  Clear Filter
-                </Button>
-              </div>
-            )}
-
-            {getCollectionItems().length === 0 ? (
-              <div className="text-center py-12 px-6 text-gray-500">
-                <div className="text-4xl mb-4">🏈</div>
-                <div className="text-lg font-medium">
-                  {slotFilter ? 'No eligible items' : 'No available items'}
-                </div>
-                <div className="text-sm">
-                  {slotFilter 
-                    ? 'All eligible players for this position are already in your lineup'
-                    : 'All players are already in your lineup'
-                  }
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Players Section */}
-                {getCollectionItems().some(item => item.type === 'player') && (
-                  <div>
-                    <CollectionListView 
-                      items={getCollectionItems().filter(item => item.type === 'player')}
-                      onItemClick={handleCollectionItemClick}
-                      showActions={true}
-                      filterType="players"
-                    />
+          getCollectionItems().length === 0 ? (
+            <div className="px-6">
+              <Card className="p-6">
+                <div className="text-center py-12 text-gray-500">
+                  <div className="text-4xl mb-4">🏈</div>
+                  <div className="text-lg font-medium">
+                    {slotFilter ? 'No eligible items' : 'No available items'}
                   </div>
-                )}
-
-                {/* Tokens Section */}
-                {getCollectionItems().some(item => item.type === 'token') && (
-                  <div>
-                    <h4 className="text-lg font-bold text-white mb-3">
-                      Available Tokens ({getCollectionItems().filter(item => item.type === 'token').length})
-                    </h4>
-                    <CollectionListView 
-                      items={getCollectionItems().filter(item => item.type === 'token')}
-                      onItemClick={handleCollectionItemClick}
-                      showActions={true}
-                      filterType="tokens"
-                    />
+                  <div className="text-sm">
+                    {slotFilter 
+                      ? 'All eligible players for this position are already in your lineup'
+                      : 'All players are already in your lineup'
+                    }
                   </div>
-                )}
-              </div>
-            )}
-          </Card>
+                </div>
+              </Card>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-auto">
+              {selectedSlot && (
+                <div className="mb-4 mx-6 p-3 bg-green-900/20 border border-green-500 rounded-lg flex items-center justify-between">
+                  <div className="text-green-300 text-sm font-medium">
+                    Click a player to add to: {currentLineup.find(s => s.slot === selectedSlot)?.label}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSlotFilter(null)
+                      setSelectedSlot(null)
+                      setPositionFilter('ALL')
+                    }}
+                  >
+                    Clear Filter
+                  </Button>
+                </div>
+              )}
+
+              {/* Players Section */}
+              {getCollectionItems().some(item => item.type === 'player') && (
+                <div>
+                  <CollectionListView 
+                    items={getCollectionItems().filter(item => item.type === 'player')}
+                    onItemClick={handleCollectionItemClick}
+                    showActions={true}
+                    filterType="players"
+                  />
+                </div>
+              )}
+
+              {/* Tokens Section */}
+              {getCollectionItems().some(item => item.type === 'token') && (
+                <div className="px-6 mt-6 mb-4">
+                  <h4 className="text-lg font-bold text-white">
+                    Available Tokens ({getCollectionItems().filter(item => item.type === 'token').length})
+                  </h4>
+                </div>
+              )}
+              {getCollectionItems().some(item => item.type === 'token') && (
+                <div>
+                  <CollectionListView 
+                    items={getCollectionItems().filter(item => item.type === 'token')}
+                    onItemClick={handleCollectionItemClick}
+                    showActions={true}
+                    filterType="tokens"
+                  />
+                </div>
+              )}
+            </div>
+          )
         )}
 
         {/* Submit Button */}

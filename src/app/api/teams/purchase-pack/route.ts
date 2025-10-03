@@ -9,12 +9,13 @@ const BodySchema = z.object({
 });
 
 // Rarity weights for card distribution
+// Balanced for exciting packs with better mix of good/bad cards
 const RARITY_WEIGHTS = {
-  common: 60,
-  uncommon: 25,
-  rare: 10,
-  epic: 4,
-  legendary: 1
+  common: 45,      // 45% - Common but not overwhelming
+  uncommon: 30,    // 30% - Solid middle tier
+  rare: 17,        // 17% - Good pull frequency
+  epic: 6,         // 6% - Exciting finds
+  legendary: 2     // 2% - Rare but achievable!
 };
 
 // Default cards per pack
@@ -145,6 +146,7 @@ export async function POST(req: NextRequest) {
     // Add cards to user's inventory
     console.log('Preparing to insert user cards...');
     const userCards = grantedCards.map(card => ({
+      user_id: userId,
       team_id: teamId,
       card_id: card.id,
       remaining_contracts: card.base_contracts || 3,
@@ -249,26 +251,91 @@ export async function POST(req: NextRequest) {
 
 /**
  * Generate random cards from active players
- * Optimized to fetch all players once and create cards in batch
+ * Performance-weighted: Better players appear more often!
+ * Only includes playable positions: QB, RB, WR, TE
  */
 async function generateRandomCards(count: number) {
+  // Only allow playable positions for the fantasy game
+  // Note: Database stores full position names, not abbreviations
+  const PLAYABLE_POSITIONS = ['Quarterback', 'Running Back', 'Wide Receiver', 'Tight End'];
+  
+  console.log('Fetching active players with positions:', PLAYABLE_POSITIONS);
+  
+  // First, get total count of eligible players
+  const { count: totalPlayers } = await supabaseAdmin
+    .from('players')
+    .select('*', { count: 'exact', head: true })
+    .eq('active', true)
+    .in('position', PLAYABLE_POSITIONS);
+  
+  console.log('Total eligible players:', totalPlayers);
+  
+  // Use a random offset to get different players each time
+  const randomOffset = Math.floor(Math.random() * Math.max(0, (totalPlayers || 1000) - 500));
+  
   // Get a pool of random active players (fetch more than needed to ensure variety)
   const { data: players, error: playersError } = await supabaseAdmin
     .from('players')
     .select('id, first_name, last_name, position, team')
     .eq('active', true)
-    .limit(500); // Get a good pool of players
+    .in('position', PLAYABLE_POSITIONS)
+    .range(randomOffset, randomOffset + 499); // Random window of 500 players
 
-  if (playersError || !players || players.length === 0) {
-    console.error('Failed to fetch active players:', playersError);
-    return [];
+  console.log('Query result - Players:', players?.length || 0, 'Offset:', randomOffset, 'Error:', playersError);
+
+  if (playersError) {
+    console.error('Database error fetching players:', playersError);
+    throw new Error(`Database error: ${playersError.message}`);
   }
 
-  // Shuffle players to ensure randomness
-  const shuffledPlayers = players.sort(() => Math.random() - 0.5);
+  if (!players || players.length === 0) {
+    console.error('No active players found with positions:', PLAYABLE_POSITIONS);
+    
+    // Try without position filter to see if there are ANY active players
+    const { data: anyPlayers, error: anyError } = await supabaseAdmin
+      .from('players')
+      .select('id, position')
+      .eq('active', true)
+      .limit(10);
+    
+    console.log('Sample of active players in DB:', anyPlayers);
+    
+    throw new Error('No active players available with playable positions');
+  }
   
-  // Select random players for cards
-  const selectedPlayers = shuffledPlayers.slice(0, count);
+  console.log('Successfully fetched', players.length, 'active players');
+
+  // Fetch recent performance data for all players to weight selection
+  const playersWithPerformance = await calculatePlayerPerformanceWeights(players);
+  
+  // Group players by position for balanced selection
+  const playersByPosition = playersWithPerformance.reduce((acc, player) => {
+    if (!acc[player.position]) acc[player.position] = [];
+    acc[player.position].push(player);
+    return acc;
+  }, {} as Record<string, typeof playersWithPerformance>);
+  
+  console.log('Players by position:', Object.keys(playersByPosition).map(pos => 
+    `${pos}: ${playersByPosition[pos].length}`
+  ).join(', '));
+
+  // Select players with WEIGHTED probability based on performance
+  const selectedPlayers = [];
+  const positions = Object.keys(playersByPosition);
+  
+  for (let i = 0; i < count; i++) {
+    // Randomly select a position (equal odds for each)
+    const randomPosition = positions[Math.floor(Math.random() * positions.length)];
+    const positionPlayers = playersByPosition[randomPosition];
+    
+    // Use weighted random selection - better players more likely!
+    const randomPlayer = weightedRandomPlayer(positionPlayers);
+    selectedPlayers.push(randomPlayer);
+    
+    const perfTier = randomPlayer.performanceTier || 'unknown';
+    const avgPoints = randomPlayer.avgFantasyPoints?.toFixed(1) || '?';
+    console.log(`Card ${i + 1}: Selected ${randomPlayer.first_name} ${randomPlayer.last_name} (${randomPosition}) - ${perfTier} tier (${avgPoints} FP/game)`);
+  }
   
   // Get player IDs to check for existing cards
   const playerIds = selectedPlayers.map(p => p.id);
@@ -372,4 +439,147 @@ function getRarityValue(rarity: string, type: 'sell' | 'contracts'): number {
   };
 
   return values[rarity as keyof typeof values]?.[type] || values.common[type];
+}
+
+/**
+ * Calculate performance weights for players based on recent game stats
+ * Better performing players get higher weights = more likely to appear in packs
+ * Players with NO stats for the season have very low weight (0.1x)
+ */
+async function calculatePlayerPerformanceWeights(players: any[]) {
+  const GAMES_TO_ANALYZE = 5; // Look at last 5 games
+  const CURRENT_SEASON_YEAR = 2025; // Current season
+  
+  const playersWithWeights = await Promise.all(
+    players.map(async (player) => {
+      try {
+        // First, check if player has ANY stats for current season
+        const { data: seasonStats, error: seasonError } = await supabaseAdmin
+          .from('player_game_stats')
+          .select('stat_json, created_at')
+          .eq('player_id', player.id)
+          .eq('finalized', true)
+          .gte('created_at', `${CURRENT_SEASON_YEAR}-01-01`)
+          .order('created_at', { ascending: false })
+          .limit(GAMES_TO_ANALYZE);
+
+        // If player has NO stats at all for the season, they're likely injured/benched/practice squad
+        if (!seasonStats || seasonStats.length === 0) {
+          return {
+            ...player,
+            avgFantasyPoints: 0,
+            gamesAnalyzed: 0,
+            performanceTier: 'no-stats',
+            selectionWeight: 0.001, // VIRTUALLY IMPOSSIBLE (1000x less likely than average!)
+            hasSeasonStats: false
+          };
+        }
+
+        // Calculate average fantasy points from recent games
+        let avgFantasyPoints = 0;
+        let gamesPlayed = 0;
+        let totalPoints = 0;
+
+        for (const stat of seasonStats) {
+          const fp = stat.stat_json?.fantasy_points || 0;
+          totalPoints += fp;
+          if (fp > 0) gamesPlayed++;
+        }
+
+        avgFantasyPoints = gamesPlayed > 0 ? totalPoints / gamesPlayed : 0;
+
+        // Determine performance tier and weight based on actual performance
+        // EXTREME weighting: Only top performers appear regularly!
+        let performanceTier: string;
+        let selectionWeight: number;
+
+        if (avgFantasyPoints >= 15) {
+          performanceTier = 'elite';
+          selectionWeight = 50.0; // 50x more likely than average! 🔥🔥🔥
+        } else if (avgFantasyPoints >= 12) {
+          performanceTier = 'star';
+          selectionWeight = 25.0; // 25x more likely! 🔥🔥
+        } else if (avgFantasyPoints >= 10) {
+          performanceTier = 'above-average';
+          selectionWeight = 10.0; // 10x more likely! 🔥
+        } else if (avgFantasyPoints >= 8) {
+          performanceTier = 'good';
+          selectionWeight = 4.0; // 4x more likely
+        } else if (avgFantasyPoints >= 6) {
+          performanceTier = 'average';
+          selectionWeight = 1.0; // Baseline
+        } else if (avgFantasyPoints >= 4) {
+          performanceTier = 'below-average';
+          selectionWeight = 0.2; // Very rare
+        } else if (avgFantasyPoints >= 2) {
+          performanceTier = 'bench-warmer';
+          selectionWeight = 0.05; // Extremely rare
+        } else if (avgFantasyPoints > 0) {
+          performanceTier = 'minimal-impact';
+          selectionWeight = 0.01; // Almost never
+        } else {
+          // Has stats but 0 FP (edge case - maybe on special teams only)
+          performanceTier = 'zero-impact';
+          selectionWeight = 0.001; // Virtually impossible
+        }
+
+        return {
+          ...player,
+          avgFantasyPoints,
+          gamesAnalyzed: seasonStats.length,
+          performanceTier,
+          selectionWeight,
+          hasSeasonStats: true
+        };
+      } catch (error) {
+        console.warn(`Error fetching stats for ${player.first_name} ${player.last_name}:`, error);
+        // On error, treat as no stats - virtually impossible to select
+        return {
+          ...player,
+          avgFantasyPoints: 0,
+          gamesAnalyzed: 0,
+          performanceTier: 'error',
+          selectionWeight: 0.001,
+          hasSeasonStats: false
+        };
+      }
+    })
+  );
+
+  return playersWithWeights;
+}
+
+/**
+ * Weighted random selection - better players more likely to be selected
+ */
+function weightedRandomPlayer(players: any[]) {
+  // Calculate total weight
+  const totalWeight = players.reduce((sum, player) => sum + (player.selectionWeight || 1.0), 0);
+  
+  // Pick a random value between 0 and total weight
+  let random = Math.random() * totalWeight;
+  
+  // Find the player that corresponds to this random value
+  for (const player of players) {
+    random -= player.selectionWeight || 1.0;
+    if (random <= 0) {
+      return player;
+    }
+  }
+  
+  // Fallback to last player (should never reach here)
+  return players[players.length - 1];
+}
+
+/**
+ * Fisher-Yates shuffle algorithm for true random shuffling
+ * More random than Array.sort(() => Math.random() - 0.5)
+ */
+function fisherYatesShuffle<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
 }

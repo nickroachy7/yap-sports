@@ -7,6 +7,8 @@ export async function GET(
 ) {
   try {
     const { playerId } = await params;
+    const searchParams = req.nextUrl.searchParams;
+    const requestedSeason = searchParams.get('season') ? parseInt(searchParams.get('season')!) : 2025;
     
     if (!playerId) {
       return NextResponse.json({ 
@@ -14,13 +16,13 @@ export async function GET(
       }, { status: 400 });
     }
 
-    console.log(`Fetching game log for player: ${playerId}`);
+    console.log(`Fetching game log for player: ${playerId}, season: ${requestedSeason}`);
 
-    // Get the current season
+    // Get the requested season
     const { data: currentSeason, error: seasonError } = await supabaseAdmin
       .from('seasons')
       .select('id, year')
-      .eq('year', 2025)
+      .eq('year', requestedSeason)
       .eq('league', 'NFL')
       .single();
 
@@ -171,12 +173,28 @@ export async function GET(
       .eq('id', playerId)
       .single();
 
+    // Get available seasons for this player
+    const { data: availableSeasons } = await supabaseAdmin
+      .from('player_game_stats')
+      .select('game_date')
+      .eq('player_id', playerId)
+      .order('game_date', { ascending: false });
+
+    const seasonsWithData = new Set<number>();
+    availableSeasons?.forEach(stat => {
+      if (stat.game_date) {
+        const year = new Date(stat.game_date).getFullYear();
+        seasonsWithData.add(year);
+      }
+    });
+
     return NextResponse.json({
       success: true,
       playerId,
       playerName: playerInfo ? `${playerInfo.first_name} ${playerInfo.last_name}` : 'Unknown Player',
       season: currentSeason.year,
-      gameLogEntries
+      gameLogEntries,
+      availableSeasons: Array.from(seasonsWithData).sort((a, b) => b - a)
     });
 
   } catch (err: any) {

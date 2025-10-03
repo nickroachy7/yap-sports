@@ -1,0 +1,51 @@
+ devname: Update Trending Cache
+
+on:
+  schedule:
+    # Run daily at 4 AM UTC (adjust timezone as needed)
+    - cron: '0 4 * * *'
+  
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  update-trending:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Trigger Trending Calculation
+        run: |
+          echo "🔄 Triggering trending calculation..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            ${{ secrets.RAILWAY_APP_URL }}/api/cron/calculate-trending)
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "📊 Response:"
+          echo "$BODY" | jq '.'
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP status $HTTP_CODE"
+            exit 1
+          fi
+          
+          SUCCESS=$(echo "$BODY" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "❌ API returned success: false"
+            exit 1
+          fi
+          
+          PLAYERS=$(echo "$BODY" | jq -r '.playersProcessed')
+          TRENDS=$(echo "$BODY" | jq -r '.playersWithTrends')
+          
+          echo "✅ Success! Processed $PLAYERS players, $TRENDS with trends"
+      
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "❌ Trending calculation failed!"
+          echo "Check the logs above for details."
+

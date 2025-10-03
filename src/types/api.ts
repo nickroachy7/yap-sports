@@ -73,6 +73,7 @@ export interface Card {
 
 export interface UserCard {
   id: string;
+  user_id: string;
   team_id: string;
   card_id: string;
   remaining_contracts: number;

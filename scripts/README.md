@@ -130,9 +130,91 @@ curl -X POST http://localhost:3000/api/admin/sync/stats \
   -d '{"season_year": 2024, "dates": ["2024-09-08"]}'
 ```
 
+## Cleanup Retired Player Cards
+
+### Quick Start
+
+```bash
+# Set your auth token
+export AUTH_TOKEN='your-supabase-jwt-token'
+
+# Run cleanup
+./scripts/cleanup-retired-cards.sh
+
+# Or for production
+./scripts/cleanup-retired-cards.sh https://yapsports.vercel.app
+```
+
+### What It Does
+
+This script removes cards for retired NFL players from your collection:
+
+1. ✅ Finds all cards for retired players (`active = false`)
+2. ✅ Marks them as "sold" in the database
+3. ✅ Refunds their sell value in coins
+4. ✅ Shows you what was removed
+
+### Getting Your Auth Token
+
+You can get your auth token from your browser's developer console:
+
+```javascript
+// Run this in the browser console while logged in
+const { data } = await supabase.auth.getSession()
+console.log(data.session.access_token)
+```
+
+Or from Supabase Studio:
+1. Go to Authentication > Users
+2. Find your user
+3. Copy the JWT token
+
+### Options
+
+```bash
+# Clean up specific team only
+export TEAM_ID='your-team-id'
+export AUTH_TOKEN='your-token'
+./scripts/cleanup-retired-cards.sh
+
+# Clean up all teams (default)
+export AUTH_TOKEN='your-token'
+./scripts/cleanup-retired-cards.sh
+```
+
+### Example Output
+
+```
+🧹 Yap Sports - Cleanup Retired Player Cards
+============================================
+
+🏠 Using local environment: http://localhost:3000
+🔑 Auth token found: eyJhbGciOiJIUzI1NiIs...
+🌍 Cleaning up all teams
+
+🚀 Running cleanup...
+
+✅ Cleanup complete!
+
+📊 Results:
+  • Cards removed: 3
+  • Coins refunded: 🪙 200
+  • Message: Successfully removed 3 cards for retired players
+
+🗑️  Removed players:
+  • Donovan McNabb (Quarterback - MIN) - 🪙 50
+  • Calvin Johnson (Wide Receiver - DET) - 🪙 100
+  • Ray Rice (Running Back - BAL) - 🪙 50
+
+💰 Total coins refunded to your team(s): 🪙 200
+
+✨ Done! Refresh your dashboard to see the updated collection.
+```
+
 ## See Also
 
 - [BallDontLie Setup Guide](../BALLDONTLIE_SETUP_GUIDE.md) - Complete documentation
 - [Stats Field Mapping](../STATS_FIELD_MAPPING.md) - Field reference
+- [Active Players & Better Rarity](../ACTIVE_PLAYERS_AND_BETTER_RARITY.md) - Pack improvements
 - [API Documentation](https://docs.balldontlie.io) - BallDontLie API docs
 

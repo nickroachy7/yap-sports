@@ -158,6 +158,19 @@ export async function POST(req: NextRequest) {
           const sportsEvent = sportsEventsMap.get(stat.game?.id?.toString());
           if (sportsEvent) gameMappedCount++;
 
+          // Calculate fantasy points (standard PPR scoring)
+          const fantasyPoints = (
+            (stat.passing_yards || 0) * 0.04 +           // 1 pt per 25 yards
+            (stat.passing_touchdowns || 0) * 4 +          // 4 pts per TD
+            (stat.passing_interceptions || 0) * -2 +      // -2 pts per INT
+            (stat.rushing_yards || 0) * 0.1 +             // 1 pt per 10 yards
+            (stat.rushing_touchdowns || 0) * 6 +          // 6 pts per TD
+            (stat.receiving_yards || 0) * 0.1 +           // 1 pt per 10 yards
+            (stat.receiving_touchdowns || 0) * 6 +        // 6 pts per TD
+            (stat.receptions || 0) * 1 +                  // 1 pt per reception (PPR)
+            (stat.fumbles_lost || 0) * -2                 // -2 pts per fumble lost
+          );
+
           // Extract key stats for easy querying
           const statJson = {
             // Basic info
@@ -171,11 +184,15 @@ export async function POST(req: NextRequest) {
             passing_yards: stat.passing_yards || 0,
             passing_touchdowns: stat.passing_touchdowns || 0,
             passing_interceptions: stat.passing_interceptions || 0,
+            yards_per_pass_attempt: stat.yards_per_pass_attempt || 0,
+            qb_rating: stat.qb_rating || 0,
+            sacks: stat.sacks || 0,
             
             // Rushing stats
             rushing_attempts: stat.rushing_attempts || 0,
             rushing_yards: stat.rushing_yards || 0,
             rushing_touchdowns: stat.rushing_touchdowns || 0,
+            yards_per_rush_attempt: stat.yards_per_rush_attempt || 0,
             
             // Receiving stats
             receiving_targets: stat.receiving_targets || 0,
@@ -183,10 +200,15 @@ export async function POST(req: NextRequest) {
             receptions: stat.receptions || 0, // Store as both for compatibility
             receiving_yards: stat.receiving_yards || 0,
             receiving_touchdowns: stat.receiving_touchdowns || 0,
+            yards_per_reception: stat.yards_per_reception || 0,
             
             // Other stats
             fumbles: stat.fumbles || 0,
             fumbles_lost: stat.fumbles_lost || 0,
+            fumbles_recovered: stat.fumbles_recovered || 0,
+            
+            // Fantasy points
+            fantasy_points: fantasyPoints,
             
             // Meta
             game_date: stat.game?.date || null,
@@ -224,7 +246,10 @@ export async function POST(req: NextRequest) {
               sports_event_id: statRecord.sports_event_id,
               player_id: statRecord.player_id,
               stat_json: statRecord.stat_json,
-              finalized: statRecord.finalized
+              finalized: statRecord.finalized,
+              game_date: statRecord.game_date,  // Include game_date!
+              external_game_id: statRecord.external_game_id,
+              external_player_id: statRecord.external_player_id
             }, {
               onConflict: 'sports_event_id,player_id',
               ignoreDuplicates: false

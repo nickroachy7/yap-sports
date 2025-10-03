@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { TeamSidebar, DebugPanel } from "@/components/ui";
+import { TeamSidebar, DebugPanel, PersistentHeader } from "@/components/ui";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { HeaderProvider } from "@/contexts/HeaderContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,11 +32,14 @@ export default function RootLayout({
         style={{backgroundColor: 'var(--color-obsidian)'}}
       >
         <AuthProvider>
-          <TeamSidebar />
-          <main className="min-h-screen ml-64">
-            {children}
-          </main>
-          <DebugPanel />
+          <HeaderProvider>
+            <TeamSidebar />
+            <main className="min-h-screen ml-64">
+              <PersistentHeader />
+              {children}
+            </main>
+            <DebugPanel />
+          </HeaderProvider>
         </AuthProvider>
       </body>
     </html>

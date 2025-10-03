@@ -2,8 +2,14 @@
 
 import Link from 'next/link'
 import { motion } from 'framer-motion'
+import { usePageHeader } from '@/hooks/usePageHeader'
+import { Home as HomeIcon, Zap, Info } from 'lucide-react'
+import { useState } from 'react'
+import type { Tab } from '@/components/ui'
+import { StandardLayout } from '@/components/ui'
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState('overview')
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -24,15 +30,35 @@ export default function Home() {
     }
   }
 
+  // Prepare tabs for header
+  const tabs: Tab[] = [
+    { id: 'overview', label: 'Overview', icon: HomeIcon, badge: null },
+    { id: 'features', label: 'Features', icon: Zap, badge: null },
+    { id: 'about', label: 'About', icon: Info, badge: null }
+  ]
+
+  // Register persistent header
+  usePageHeader({
+    title: "YAP Sports",
+    subtitle: "Fantasy Football Reimagined",
+    showNavigation: true,
+    tabs: tabs,
+    activeTab: activeTab,
+    onTabChange: (tabId) => setActiveTab(tabId)
+  })
+
   return (
-    <motion.main 
-      className="p-8 min-h-screen"
-      initial="hidden"
-      animate="visible"
-      variants={containerVariants}
-    >
-      {/* Hero Section */}
-      <motion.div variants={itemVariants} className="mb-16 text-center">
+    <StandardLayout>
+      <motion.main 
+        className="p-8"
+        initial="hidden"
+        animate="visible"
+        variants={containerVariants}
+      >
+        {/* Hero Section - Overview Tab */}
+        {activeTab === 'overview' && (
+          <>
+            <motion.div variants={itemVariants} className="mb-16 text-center">
         <div className="mb-6">
           <h1 className="text-6xl font-black mb-6 text-gradient-primary leading-tight">
             YAP SPORTS
@@ -218,21 +244,157 @@ export default function Home() {
         </div>
       </motion.div>
 
-      {/* Status Banner */}
-      <motion.div variants={itemVariants}>
-        <div className="card border-lime-600/50 bg-gradient-to-r from-lime-900/20 to-lime-800/10">
-          <div className="flex items-center justify-center space-x-4 text-center">
-            <div className="text-lime-400 text-2xl">✅</div>
-            <div>
-              <div className="font-bold text-lime-300 text-lg">Platform Status: Fully Operational</div>
-              <div className="text-sm text-lime-400/80 mt-1">
-                NFL data integrated • Live scoring active • Player research available • All systems operational
+            {/* Status Banner */}
+            <motion.div variants={itemVariants}>
+              <div className="card border-lime-600/50 bg-gradient-to-r from-lime-900/20 to-lime-800/10">
+                <div className="flex items-center justify-center space-x-4 text-center">
+                  <div className="text-lime-400 text-2xl">✅</div>
+                  <div>
+                    <div className="font-bold text-lime-300 text-lg">Platform Status: Fully Operational</div>
+                    <div className="text-sm text-lime-400/80 mt-1">
+                      NFL data integrated • Live scoring active • Player research available • All systems operational
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+
+        {/* Features Tab */}
+        {activeTab === 'features' && (
+          <motion.div variants={itemVariants} className="max-w-5xl mx-auto">
+            <div className="mb-8 text-center">
+              <h2 className="text-4xl font-bold text-white mb-4">Powerful Features</h2>
+              <p className="text-xl text-gray-400">Everything you need for the ultimate fantasy football experience</p>
+            </div>
+
+            <div className="space-y-8">
+              <div className="card">
+                <div className="flex items-start gap-6">
+                  <div className="text-5xl">🎒</div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-white mb-3">Strategic Pack System</h3>
+                    <p className="text-gray-300 mb-4">
+                      Open card packs to collect real NFL players. Each pack contains a mix of common to legendary players 
+                      based on their real-world performance. Build your dream roster with strategic pack purchases.
+                    </p>
+                    <ul className="space-y-2 text-gray-400">
+                      <li>• Performance-weighted rarity system</li>
+                      <li>• Multiple pack tiers with different odds</li>
+                      <li>• Real-time roster building</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="flex items-start gap-6">
+                  <div className="text-5xl">🏈</div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-white mb-3">Dynamic Lineup Management</h3>
+                    <p className="text-gray-300 mb-4">
+                      Build optimal lineups with position constraints and strategic token bonuses. Set your lineup each week 
+                      and watch as your players earn points based on their real NFL performance.
+                    </p>
+                    <ul className="space-y-2 text-gray-400">
+                      <li>• Position-specific slots (QB, RB, WR, TE, FLEX)</li>
+                      <li>• Token-based bonus multipliers</li>
+                      <li>• Contract-based player usage</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="flex items-start gap-6">
+                  <div className="text-5xl">📊</div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-white mb-3">Real NFL Data & Analytics</h3>
+                    <p className="text-gray-300 mb-4">
+                      Access comprehensive player stats, game logs, and performance analytics. Make informed decisions 
+                      with deep insights into player trends and matchup data.
+                    </p>
+                    <ul className="space-y-2 text-gray-400">
+                      <li>• Live game scoring and updates</li>
+                      <li>• Detailed season statistics</li>
+                      <li>• Position rankings and trends</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </motion.div>
-      
-    </motion.main>
+          </motion.div>
+        )}
+
+        {/* About Tab */}
+        {activeTab === 'about' && (
+          <motion.div variants={itemVariants} className="max-w-4xl mx-auto">
+            <div className="mb-8 text-center">
+              <h2 className="text-4xl font-bold text-white mb-4">About YAP Sports</h2>
+              <p className="text-xl text-gray-400">Revolutionizing fantasy football with innovation and strategy</p>
+            </div>
+
+            <div className="space-y-6">
+              <div className="card">
+                <h3 className="text-2xl font-bold text-white mb-4">Our Vision</h3>
+                <p className="text-gray-300 leading-relaxed">
+                  YAP Sports combines the excitement of card collecting with the strategy of fantasy football. 
+                  We've created a unique platform where every decision matters, from pack purchases to lineup 
+                  optimization. Our goal is to provide the most engaging and rewarding fantasy football experience.
+                </p>
+              </div>
+
+              <div className="card">
+                <h3 className="text-2xl font-bold text-white mb-4">Key Differentiators</h3>
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="text-lg font-semibold text-green-400 mb-2">Real NFL Data</h4>
+                    <p className="text-gray-300 text-sm">
+                      Integration with live NFL stats ensures authentic gameplay based on actual player performance.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-semibold text-purple-400 mb-2">Strategic Depth</h4>
+                    <p className="text-gray-300 text-sm">
+                      Tokens, contracts, and economic systems add layers of strategy beyond traditional fantasy football.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-semibold text-blue-400 mb-2">Dynamic Economy</h4>
+                    <p className="text-gray-300 text-sm">
+                      Earn coins, buy packs, trade cards, and manage your team's resources for maximum success.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-semibold text-amber-400 mb-2">Competitive Play</h4>
+                    <p className="text-gray-300 text-sm">
+                      Weekly competitions with automated scoring and rewards based on real NFL game outcomes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card bg-gradient-to-r from-green-900/20 to-blue-900/20 border-green-600/50">
+                <div className="text-center">
+                  <h3 className="text-2xl font-bold text-white mb-4">Ready to Get Started?</h3>
+                  <p className="text-gray-300 mb-6">
+                    Join YAP Sports today and experience fantasy football like never before.
+                  </p>
+                  <div className="flex justify-center space-x-4">
+                    <Link href="/auth" className="btn btn-success text-lg px-8 py-3">
+                      Create Account
+                    </Link>
+                    <Link href="/players" className="btn btn-outline text-lg px-8 py-3">
+                      Browse Players
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </motion.main>
+    </StandardLayout>
   )
 }

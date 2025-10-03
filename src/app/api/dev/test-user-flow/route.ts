@@ -122,12 +122,14 @@ export async function POST(req: NextRequest) {
                   first_name,
                   last_name,
                   position,
-                  team
+                  team,
+                  active
                 )
               )
             `)
             .eq('team_id', teamId)
             .eq('status', 'owned')
+            .eq('cards.players.active', true)
             .limit(5);
           
           if (userCardsError) throw userCardsError;
